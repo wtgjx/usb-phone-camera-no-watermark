@@ -28,7 +28,7 @@ Android Camera2 → USB/ADB → scrcpy Camera Mode → OBS Virtual Camera → Op
 
 ## 直接使用
 
-1. 从 GitHub Releases 下载 `无水印手机USB摄像头-v2.0.zip` 并完整解压；
+1. 从 GitHub Releases 下载 `phone-usb-camera-v2.0.0-win64.zip` 并完整解压；
 2. 手机开启 USB 调试，连接电脑后在手机上允许调试授权；
 3. 确认手机相机、视频通话和直播应用已关闭；
 4. 双击 `无水印手机USB摄像头.exe`；
