@@ -1,0 +1,63 @@
+$ErrorActionPreference = 'Stop'
+
+$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$sourcePath = Join-Path $projectRoot 'PhoneUsbCamera.cs'
+$manifestPath = Join-Path $projectRoot 'app.manifest'
+$vendorRoot = Join-Path $projectRoot 'vendor'
+$vendorPath = Join-Path $projectRoot 'vendor\scrcpy-win64-v4.1'
+$distPath = Join-Path $projectRoot 'dist'
+$scrcpyDistPath = Join-Path $distPath 'scrcpy'
+$outputPath = Join-Path $distPath '无水印手机USB摄像头.exe'
+$compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+$scrcpyDownloadUri = 'https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-win64-v4.1.zip'
+$scrcpyExpectedHash = '5B12172B3264B2889F4583EE64752CE832E29BC8B1089DCA81093459697165DB'
+
+if (-not (Test-Path -LiteralPath $compilerPath)) {
+    throw "未找到 Windows C# 编译器：$compilerPath"
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $vendorPath 'scrcpy.exe'))) {
+    Write-Host '未找到本地 scrcpy 4.1，正在下载官方 Windows 64-bit 发行包…'
+    New-Item -ItemType Directory -Path $vendorRoot -Force | Out-Null
+    $scrcpyArchivePath = Join-Path ([IO.Path]::GetTempPath()) 'phone-usb-camera-scrcpy-win64-v4.1.zip'
+    Invoke-WebRequest -UseBasicParsing -Uri $scrcpyDownloadUri -OutFile $scrcpyArchivePath
+    $scrcpyActualHash = (Get-FileHash -LiteralPath $scrcpyArchivePath -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($scrcpyActualHash -ne $scrcpyExpectedHash) {
+        throw "scrcpy 下载文件校验失败。期望：$scrcpyExpectedHash，实际：$scrcpyActualHash"
+    }
+    Expand-Archive -LiteralPath $scrcpyArchivePath -DestinationPath $vendorRoot -Force
+    Remove-Item -LiteralPath $scrcpyArchivePath -Force
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $vendorPath 'scrcpy.exe'))) {
+    throw "scrcpy 4.1 解压后仍未找到 scrcpy.exe：$vendorPath"
+}
+
+New-Item -ItemType Directory -Path $distPath -Force | Out-Null
+New-Item -ItemType Directory -Path $scrcpyDistPath -Force | Out-Null
+
+& $compilerPath `
+    /nologo `
+    /target:winexe `
+    /platform:x64 `
+    /optimize+ `
+    /win32manifest:$manifestPath `
+    /out:$outputPath `
+    /reference:System.dll `
+    /reference:System.Core.dll `
+    /reference:System.Drawing.dll `
+    /reference:System.Web.Extensions.dll `
+    /reference:System.Windows.Forms.dll `
+    $sourcePath
+
+if ($LASTEXITCODE -ne 0) {
+    throw "编译失败，退出码：$LASTEXITCODE"
+}
+
+Copy-Item -Path (Join-Path $vendorPath '*') -Destination $scrcpyDistPath -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $distPath 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $distPath 'LICENSE') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $distPath 'THIRD_PARTY_NOTICES.md') -Force
+
+Write-Host "构建完成：$outputPath"
+Write-Host "scrcpy 运行库：$scrcpyDistPath"

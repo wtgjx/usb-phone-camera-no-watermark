@@ -1,0 +1,16 @@
+# Build and packaged releases
+dist/
+vendor/
+*.zip
+
+# Local diagnostics and end-to-end reports
+diagnostics*.json
+e2e-*.txt
+prepare-obs.txt
+start-session.txt
+
+# IDE and local files
+.vs/
+*.user
+*.suo
+*.log
