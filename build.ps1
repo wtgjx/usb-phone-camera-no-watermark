@@ -1,7 +1,9 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourcePath = Join-Path $projectRoot 'PhoneUsbCamera.cs'
+$uiSourcePath = Join-Path $projectRoot 'CameraStudioForm.cs'
+$previewSourcePath = Join-Path $projectRoot 'PreviewWindowBridge.cs'
 $manifestPath = Join-Path $projectRoot 'app.manifest'
 $vendorRoot = Join-Path $projectRoot 'vendor'
 $vendorPath = Join-Path $projectRoot 'vendor\scrcpy-win64-v4.1'
@@ -48,7 +50,9 @@ New-Item -ItemType Directory -Path $scrcpyDistPath -Force | Out-Null
     /reference:System.Drawing.dll `
     /reference:System.Web.Extensions.dll `
     /reference:System.Windows.Forms.dll `
-    $sourcePath
+    $sourcePath `
+    $uiSourcePath `
+    $previewSourcePath
 
 if ($LASTEXITCODE -ne 0) {
     throw "编译失败，退出码：$LASTEXITCODE"

@@ -10,6 +10,11 @@ Android Camera2 → USB/ADB → scrcpy Camera Mode → OBS Virtual Camera → Op
 
 ## 功能
 
+- 苹果风格的简约白色单窗口界面，实时画面、连接状态和常用控制集中在同一页；
+- scrcpy 仍在后台提供原始高分辨率画面，但不再显示独立任务栏窗口；
+- 运行中可直接左转 90°、右转 90°、水平镜像，并切换预览的适应/填满模式；
+- 运行日志默认收起，需要排查时再展开；
+- 自动刷新 USB 连接与输出状态，支持 Windows 显示缩放和小窗口设置区滚动；
 - 通过 USB/ADB 读取 Android Camera2 镜头；
 - 扫描前摄、后摄和手机开放的视频尺寸；
 - 提供 720p30、1080p30、2K30 和 4K30 档位；
@@ -28,17 +33,25 @@ Android Camera2 → USB/ADB → scrcpy Camera Mode → OBS Virtual Camera → Op
 
 ## 直接使用
 
-1. 从 GitHub Releases 下载 `phone-usb-camera-v2.0.0-win64.zip` 并完整解压；
+1. 从 GitHub Releases 下载 `phone-usb-camera-v2.1.0-win64.zip` 并完整解压；
 2. 手机开启 USB 调试，连接电脑后在手机上允许调试授权；
 3. 确认手机相机、视频通话和直播应用已关闭；
-4. 双击 `无水印手机USB摄像头.exe`；
-5. 点击「扫描手机镜头」，选择镜头与画质；
-6. 点击「启动无水印虚拟摄像头」；
+4. 在解压后的文件夹中双击 `无水印手机USB摄像头.exe`；如果是源码目录，文件位于 `dist` 文件夹；
+5. 选择镜头与画质；需要刷新设备时点击「重新扫描手机镜头」；
+6. 点击「启动摄像头」；
 7. 在 OpenScreen 的摄像头列表选择 `OBS Virtual Camera`。
 
-> `Phone USB Camera` scrcpy 预览窗口可以被其他窗口遮住，但不要最小化，否则 OBS 窗口捕获可能停止更新。
+启动成功后，手机画面会直接显示在主界面中。后台仍会运行 scrcpy 和专用 OBS 进程，以便保持原始分辨率并输出虚拟摄像头；请通过主界面的「停止本次会话」结束它们，不要在任务管理器中单独结束后台源。
+
+如果 OpenScreen 没有立刻出现画面，请先确认选中的是 `OBS Virtual Camera`。仍无画面时，在主界面停止会话后重新启动，让 OBS 重新绑定手机画面。
 
 使用完可点击「停止本次会话」。正常启动完成后直接关闭控制程序，也会停止由该实例启动的 scrcpy 和 OBS；OpenScreen 保持打开。
+
+## 画面控制
+
+- 「左转 90° / 右转 90°」用于纠正手机横竖方向；
+- 「水平镜像」适合自拍和讲解场景；
+- 「适应 / 填满」只改变主界面的预览构图，不降低 OBS Virtual Camera 的原始输出分辨率。
 
 ## 从源码构建
 
@@ -53,7 +66,16 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 1. 使用 Windows/.NET Framework 自带的 C# 编译器；
 2. 在本地缺少运行库时下载官方 scrcpy 4.1 Windows 64-bit 压缩包；
 3. 校验 scrcpy 压缩包的 SHA-256；
-4. 在 `dist` 目录生成可执行程序和完整运行文件。
+4. 编译控制界面、后台会话和集成预览组件；
+5. 在 `dist` 目录生成可执行程序和完整运行文件。
+
+布局回归检查（不显示窗口、不启动手机摄像头）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test.ps1
+```
+
+检查默认窗口、最小窗口和展开运行详情时的标题间距、预览控制与主按钮尺寸。此检查不代替手机、OBS 和目标应用的真机测试。
 
 ## 已验证环境
 

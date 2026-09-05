@@ -18,8 +18,8 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("通过 scrcpy Camera Mode 和 OBS Virtual Camera 将安卓手机摄像头接入 Windows")]
 [assembly: AssemblyCompany("Local Tool")]
 [assembly: AssemblyProduct("无水印手机 USB 摄像头")]
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")]
 
 namespace PhoneUsbCamera
 {
@@ -105,7 +105,7 @@ namespace PhoneUsbCamera
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            Application.Run(new CameraStudioForm());
         }
     }
 
@@ -728,6 +728,23 @@ namespace PhoneUsbCamera
 
         internal PhoneBridgeState LastState { get; private set; }
 
+        internal bool OwnsSession
+        {
+            get
+            {
+                return (_scrcpyProcess != null && !_scrcpyProcess.HasExited) ||
+                       (_obsProcess != null && !_obsProcess.HasExited);
+            }
+        }
+
+        internal int ScrcpyProcessId
+        {
+            get
+            {
+                return _scrcpyProcess != null && !_scrcpyProcess.HasExited ? _scrcpyProcess.Id : 0;
+            }
+        }
+
         internal Task<PhoneBridgeState> InspectAsync()
         {
             return Task.Run(new Func<PhoneBridgeState>(Inspect));
@@ -821,6 +838,15 @@ namespace PhoneUsbCamera
         }
 
         internal Task<SessionResult> StartSessionAsync(CameraInfo camera, QualityPreset requested, Action<string> log)
+        {
+            return StartSessionAsync(camera, requested, log, null);
+        }
+
+        internal Task<SessionResult> StartSessionAsync(
+            CameraInfo camera,
+            QualityPreset requested,
+            Action<string> log,
+            Action<int> previewReady)
         {
             return Task.Run(delegate
             {
@@ -931,6 +957,17 @@ namespace PhoneUsbCamera
                 if (virtualActive)
                 {
                     log("OBS Virtual Camera 已确认启动。");
+                    if (previewReady != null && _scrcpyProcess != null && !_scrcpyProcess.HasExited)
+                    {
+                        try
+                        {
+                            previewReady(_scrcpyProcess.Id);
+                        }
+                        catch (Exception ex)
+                        {
+                            log("主界面实时预览暂时无法合并：" + ex.Message + "。OBS 高清输出不受影响。");
+                        }
+                    }
                 }
                 else
                 {
@@ -1167,6 +1204,9 @@ namespace PhoneUsbCamera
             string cameraArgument = camera != null && !string.IsNullOrEmpty(camera.Id)
                 ? " --camera-id=" + Quote(camera.Id)
                 : " --camera-facing=back";
+            Rectangle virtualScreen = SystemInformation.VirtualScreen;
+            int parkedX = virtualScreen.Right - 2;
+            int parkedY = virtualScreen.Bottom - 2;
             string arguments =
                 "--serial " + Quote(serial) +
                 " --video-source=camera" + cameraArgument +
@@ -1178,7 +1218,9 @@ namespace PhoneUsbCamera
                 " --window-title=" + Quote(WindowTitle) +
                 " --window-width=" + preset.Width +
                 " --window-height=" + preset.Height +
-                " --window-x=0 --window-y=0 --window-borderless --keep-active";
+                " --window-x=" + parkedX + " --window-y=" + parkedY +
+                " --window-borderless --keep-active" +
+                " --shortcut-mod=lctrl";
 
             try
             {

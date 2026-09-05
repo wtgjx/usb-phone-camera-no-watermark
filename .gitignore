@@ -1,6 +1,7 @@
 # Build and packaged releases
 dist/
 vendor/
+test-output/
 *.zip
 
 # Local diagnostics and end-to-end reports
