@@ -13,6 +13,11 @@ namespace PhoneUsbCamera
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            Require(!BridgeService.HasNonBlackOutputFrames("lavfi.signalstats.YMAX=16\nlavfi.signalstats.YMAX=16\nlavfi.signalstats.YMAX=16"),
+                "The reproduced all-black virtual-camera output must fail validation.");
+            Require(!BridgeService.HasNonBlackOutputFrames("frame=3"), "Missing frame metadata must not pass.");
+            Require(BridgeService.HasNonBlackOutputFrames("lavfi.signalstats.YMAX=16\nlavfi.signalstats.YMAX=82\nlavfi.signalstats.YMAX=91"),
+                "Actual non-black frames should pass after an initial black frame.");
             using (CameraStudioForm form = new CameraStudioForm())
             {
                 // Create handles and lay out without showing a window or opening a camera.

@@ -1,4 +1,5 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param([string]$OutputDirectory = 'dist')
+$ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourcePath = Join-Path $projectRoot 'PhoneUsbCamera.cs'
@@ -7,7 +8,10 @@ $previewSourcePath = Join-Path $projectRoot 'PreviewWindowBridge.cs'
 $manifestPath = Join-Path $projectRoot 'app.manifest'
 $vendorRoot = Join-Path $projectRoot 'vendor'
 $vendorPath = Join-Path $projectRoot 'vendor\scrcpy-win64-v4.1'
-$distPath = Join-Path $projectRoot 'dist'
+$distPath = [IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDirectory))
+if (-not $distPath.StartsWith($projectRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'OutputDirectory must be inside the project directory.'
+}
 $scrcpyDistPath = Join-Path $distPath 'scrcpy'
 $outputPath = Join-Path $distPath '无水印手机USB摄像头.exe'
 $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'

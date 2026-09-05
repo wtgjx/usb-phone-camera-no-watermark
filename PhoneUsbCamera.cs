@@ -18,8 +18,8 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("通过 scrcpy Camera Mode 和 OBS Virtual Camera 将安卓手机摄像头接入 Windows")]
 [assembly: AssemblyCompany("Local Tool")]
 [assembly: AssemblyProduct("无水印手机 USB 摄像头")]
-[assembly: AssemblyVersion("2.1.0.0")]
-[assembly: AssemblyFileVersion("2.1.0.0")]
+[assembly: AssemblyVersion("2.1.1.0")]
+[assembly: AssemblyFileVersion("2.1.1.0")]
 
 namespace PhoneUsbCamera
 {
@@ -717,9 +717,13 @@ namespace PhoneUsbCamera
         private Process _scrcpyProcess;
         private Process _obsProcess;
 
-        internal BridgeService()
+        internal BridgeService() : this(AppDomain.CurrentDomain.BaseDirectory)
         {
-            _scrcpyDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "scrcpy");
+        }
+
+        internal BridgeService(string dependencyDirectory)
+        {
+            _scrcpyDirectory = Path.Combine(Path.GetFullPath(dependencyDirectory), "scrcpy");
             _scrcpyPath = Path.Combine(_scrcpyDirectory, "scrcpy.exe");
             _adbPath = Path.Combine(_scrcpyDirectory, "adb.exe");
             _obsPath = @"C:\Program Files\obs-studio\bin\64bit\obs64.exe";
@@ -846,7 +850,8 @@ namespace PhoneUsbCamera
             CameraInfo camera,
             QualityPreset requested,
             Action<string> log,
-            Action<int> previewReady)
+            Action<int> previewReady,
+            bool openScreen = true)
         {
             return Task.Run(delegate
             {
@@ -984,8 +989,21 @@ namespace PhoneUsbCamera
                     return SessionResult.Fail(BuildScrcpyDisconnectMessage());
                 }
 
-                OperationResult openResult = LaunchOpenScreen();
-                log(openResult.Message);
+                log("正在读取虚拟摄像头的实际输出帧，检查是否仍为纯黑画面…");
+                OperationResult frames = VerifyVirtualCameraFrames(state.OpenScreenPath, log);
+                if (!frames.Success)
+                {
+                    StopProcess(_scrcpyProcess);
+                    StopProcess(_obsProcess);
+                    return SessionResult.Fail(frames.Message);
+                }
+                log(frames.Message);
+
+                if (openScreen)
+                {
+                    OperationResult openResult = LaunchOpenScreen();
+                    log(openResult.Message);
+                }
                 return SessionResult.Ok(
                     "无水印 USB 摄像头链路已启动。OpenScreen 中请选择 OBS Virtual Camera。",
                     actual.DisplayName);
@@ -1411,6 +1429,47 @@ namespace PhoneUsbCamera
                 Thread.Sleep(500);
             }
             return false;
+        }
+
+        private OperationResult VerifyVirtualCameraFrames(string openScreenPath, Action<string> log)
+        {
+            string ffmpeg = Path.Combine(Path.GetDirectoryName(openScreenPath),
+                "resources", "electron", "native", "bin", "win32-x64", "ffmpeg-shared.exe");
+            if (!File.Exists(ffmpeg))
+            {
+                return OperationResult.Fail("OpenScreen 内缺少视频检测工具，无法确认虚拟摄像头的实际画面。请修复 OpenScreen 安装后重试。");
+            }
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                if (!IsScrcpyAlive()) return OperationResult.Fail(BuildScrcpyDisconnectMessage());
+                CommandResult result = RunProcess(ffmpeg,
+                    "-hide_banner -nostdin -rtbufsize 128M -f dshow -i " + Quote("video=OBS Virtual Camera") +
+                    " -frames:v 3 -vf " + Quote("scale=320:180,signalstats,metadata=print:key=lavfi.signalstats.YMAX") +
+                    " -an -f null NUL", 10000);
+                if (result.ExitCode == 0 && HasNonBlackOutputFrames(result.AllText))
+                {
+                    return OperationResult.Ok("已从 OBS Virtual Camera 读到非纯黑视频帧；画面未保存或上传。");
+                }
+                log("实际输出帧尚未通过检查，正在重试（" + (attempt + 1) + "/3）…");
+                Thread.Sleep(750);
+            }
+            return OperationResult.Fail("虚拟摄像头虽已启动，但未能确认非纯黑视频帧。请确认手机镜头未遮挡，并关闭其他占用虚拟摄像头的程序后重试。为避免误报成功，本次会话已停止。");
+        }
+
+        internal static bool HasNonBlackOutputFrames(string metadata)
+        {
+            int nonBlack = 0;
+            foreach (Match match in Regex.Matches(metadata ?? string.Empty, @"lavfi\.signalstats\.YMAX=([0-9]+(?:\.[0-9]+)?)"))
+            {
+                double maximum;
+                if (double.TryParse(match.Groups[1].Value,
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                    out maximum) && maximum > 16.0)
+                {
+                    nonBlack++;
+                }
+            }
+            return nonBlack >= 2;
         }
 
         private bool WaitForScrcpyStable(int milliseconds)

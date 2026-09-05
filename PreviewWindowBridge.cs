@@ -15,9 +15,9 @@ namespace PhoneUsbCamera
     /// OBS Windows Graphics Capture can continue to find and capture it.  This
     /// class only manages window presentation; it never terminates the process.
     ///
-    /// IMPORTANT: Attach only after OBS has acquired the normal scrcpy window.
-    /// OBS excludes WS_EX_TOOLWINDOW windows during discovery. Detach restores
-    /// the original style and must run before OBS needs to discover it again.
+    /// The capture source must NEVER be WS_EX_TOOLWINDOW: OBS filters such
+    /// windows during initial discovery and reacquisition. A hidden independent
+    /// owner suppresses its taskbar button without changing capture eligibility.
     /// </summary>
     internal sealed class IntegratedPreviewHost : IDisposable
     {
@@ -28,9 +28,11 @@ namespace PhoneUsbCamera
         private Form _mainForm;
         private Control _placeholder;
         private PreviewOverlayForm _overlay;
+        private PreviewOverlayForm _sourceOwner;
         private IntPtr _thumbnail;
         private IntPtr _sourceHandle;
         private IntPtr _originalExtendedStyle;
+        private IntPtr _originalOwner;
         private NativeMethods.RECT _originalBounds;
         private bool _originalWasVisible;
         private bool _originalWasMinimized;
@@ -141,6 +143,7 @@ namespace PhoneUsbCamera
             _placeholder = placeholder;
             _sourceHandle = source;
             _originalExtendedStyle = NativeMethods.GetWindowLongPtr(source, NativeMethods.GWL_EXSTYLE);
+            _originalOwner = NativeMethods.GetWindowLongPtr(source, NativeMethods.GWLP_HWNDPARENT);
             NativeMethods.GetWindowRect(source, out _originalBounds);
             _originalWasVisible = NativeMethods.IsWindowVisible(source);
             _originalWasMinimized = NativeMethods.IsIconic(source);
@@ -352,14 +355,15 @@ namespace PhoneUsbCamera
             // every failure path can restore the exact original window state.
             _sourcePresentationChanged = true;
 
-            // The Shell documents hide/change/show as the reliable sequence for
-            // dynamically removing a taskbar button. OBS must already hold the
-            // source HWND before Attach changes it to a tool window.
-            NativeMethods.ShowWindow(_sourceHandle, NativeMethods.SW_HIDE);
-
+            // An owned top-level window has no taskbar button. Keep its owner
+            // independent of the main form so minimizing the UI cannot minimize
+            // the capture source. GWLP_HWNDPARENT sets ownership, not SetParent.
+            _sourceOwner = new PreviewOverlayForm();
+            NativeMethods.SetWindowLongPtr(_sourceHandle,
+                NativeMethods.GWLP_HWNDPARENT, _sourceOwner.Handle);
             long originalStyle = _originalExtendedStyle.ToInt64();
             long updatedStyle = originalStyle;
-            updatedStyle |= NativeMethods.WS_EX_TOOLWINDOW;
+            updatedStyle &= ~NativeMethods.WS_EX_TOOLWINDOW;
             updatedStyle |= NativeMethods.WS_EX_NOACTIVATE;
             updatedStyle &= ~NativeMethods.WS_EX_APPWINDOW;
             NativeMethods.SetWindowLongPtr(
@@ -370,11 +374,12 @@ namespace PhoneUsbCamera
             long verifiedStyle = NativeMethods.GetWindowLongPtr(
                 _sourceHandle,
                 NativeMethods.GWL_EXSTYLE).ToInt64();
-            if ((verifiedStyle & NativeMethods.WS_EX_TOOLWINDOW) == 0 ||
+            if ((verifiedStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0 ||
                 (verifiedStyle & NativeMethods.WS_EX_NOACTIVATE) == 0 ||
-                (verifiedStyle & NativeMethods.WS_EX_APPWINDOW) != 0)
+                (verifiedStyle & NativeMethods.WS_EX_APPWINDOW) != 0 ||
+                NativeMethods.GetWindowLongPtr(_sourceHandle, NativeMethods.GWLP_HWNDPARENT) != _sourceOwner.Handle)
             {
-                LastError = "Unable to apply the non-activating tool-window style to scrcpy.";
+                LastError = "Unable to configure scrcpy as a capturable owned top-level window.";
                 return false;
             }
 
@@ -625,6 +630,11 @@ namespace PhoneUsbCamera
             }
 
             RestoreSourceWindow();
+            if (_sourceOwner != null)
+            {
+                _sourceOwner.Dispose();
+                _sourceOwner = null;
+            }
             _sourceHandle = IntPtr.Zero;
             _mainForm = null;
             _placeholder = null;
@@ -640,7 +650,10 @@ namespace PhoneUsbCamera
                 return;
             }
 
-            NativeMethods.ShowWindow(_sourceHandle, NativeMethods.SW_HIDE);
+            // Restore ownership before destroying the hidden owner; destroying
+            // an owner while still attached could also destroy its owned HWND.
+            NativeMethods.SetWindowLongPtr(_sourceHandle,
+                NativeMethods.GWLP_HWNDPARENT, _originalOwner);
             NativeMethods.SetWindowLongPtr(
                 _sourceHandle,
                 NativeMethods.GWL_EXSTYLE,
@@ -765,6 +778,7 @@ namespace PhoneUsbCamera
         {
             internal const int S_OK = 0;
             internal const int GWL_EXSTYLE = -20;
+            internal const int GWLP_HWNDPARENT = -8;
             internal const uint GA_ROOT = 2;
             internal const int SW_HIDE = 0;
             internal const int SW_SHOWNOACTIVATE = 4;

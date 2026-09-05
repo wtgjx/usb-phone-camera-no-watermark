@@ -21,6 +21,7 @@ Android Camera2 → USB/ADB → scrcpy Camera Mode → OBS Virtual Camera → Op
 - 高画质启动失败时可自动回退到 1080p30 H.264；
 - 自动创建独立的 `PhoneUsbCamera` OBS 场景集；
 - 确认 OBS Virtual Camera 真正启动后才打开 OpenScreen；
+- v2.1.1 修复集成预览导致的虚拟摄像头黑屏，启动时还会读取实际输出帧，纯黑或读帧失败会重试并提示；
 - 检测摄像头被抢占、USB 断连和 OBS 启动失败，避免误报成功。
 
 ## 系统要求
@@ -33,7 +34,7 @@ Android Camera2 → USB/ADB → scrcpy Camera Mode → OBS Virtual Camera → Op
 
 ## 直接使用
 
-1. 从 GitHub Releases 下载 `phone-usb-camera-v2.1.0-win64.zip` 并完整解压；
+1. 从 GitHub Releases 下载 `phone-usb-camera-v2.1.1-win64.zip` 并完整解压；
 2. 手机开启 USB 调试，连接电脑后在手机上允许调试授权；
 3. 确认手机相机、视频通话和直播应用已关闭；
 4. 在解压后的文件夹中双击 `无水印手机USB摄像头.exe`；如果是源码目录，文件位于 `dist` 文件夹；
@@ -76,6 +77,14 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 ```
 
 检查默认窗口、最小窗口和展开运行详情时的标题间距、预览控制与主按钮尺寸。此检查不代替手机、OBS 和目标应用的真机测试。
+
+可选的真机回归检查（会短暂使用手机镜头；请先停止现有会话并退出 OBS 与 OpenScreen）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test-capture.ps1
+```
+
+它会按集成预览模式启动手机和专用 OBS 会话，读取虚拟摄像头亮度统计，并在结束时停止测试进程。不保存画面，不打开 OpenScreen。启动读帧检查使用 OpenScreen 自带的 `ffmpeg-shared.exe`；镜头完全遮挡或其他软件独占虚拟摄像头时可能无法通过，应解除后重试。
 
 ## 已验证环境
 

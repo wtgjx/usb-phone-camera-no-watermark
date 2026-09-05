@@ -2,6 +2,7 @@
 dist/
 vendor/
 test-output/
+release-dist/
 *.zip
 
 # Local diagnostics and end-to-end reports
