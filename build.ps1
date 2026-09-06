@@ -52,28 +52,32 @@ if (-not (Test-Path -LiteralPath (Join-Path $vendorPath 'scrcpy.exe'))) {
 New-Item -ItemType Directory -Path $distPath -Force | Out-Null
 New-Item -ItemType Directory -Path $scrcpyDistPath -Force | Out-Null
 
-& $compilerPath `
-    /nologo `
-    /main:PhoneUsbCamera.Program `
-    /target:winexe `
-    /platform:x64 `
-    /optimize+ `
-    /win32manifest:$manifestPath `
-    /win32icon:$(Join-Path $projectRoot 'assets\ucam.ico') `
-    /resource:$(Join-Path $projectRoot 'assets\ucam.ico'),UCam.Icon.ico `
-    /resource:$(Join-Path $projectRoot 'assets\ucam.png'),UCam.Logo.png `
-    /out:$outputPath `
-    /reference:System.dll `
-    /reference:System.Core.dll `
-    /reference:System.Drawing.dll `
-    /reference:System.Web.Extensions.dll `
-    /reference:System.Windows.Forms.dll `
-    $sourcePath `
-    (Join-Path $projectRoot 'BrandUI.cs') `
-    $uiSourcePath `
-    $previewSourcePath `
-    $nativeSourcePath `
+$iconPath = Join-Path $projectRoot 'assets\ucam.ico'
+$logoPath = Join-Path $projectRoot 'assets\ucam.png'
+$compilerArguments = @(
+    '/nologo',
+    '/main:PhoneUsbCamera.Program',
+    '/target:winexe',
+    '/platform:x64',
+    '/optimize+',
+    "/win32manifest:$manifestPath",
+    "/win32icon:$iconPath",
+    "/resource:$iconPath,UCam.Icon.ico",
+    "/resource:$logoPath,UCam.Logo.png",
+    "/out:$outputPath",
+    '/reference:System.dll',
+    '/reference:System.Core.dll',
+    '/reference:System.Drawing.dll',
+    '/reference:System.Web.Extensions.dll',
+    '/reference:System.Windows.Forms.dll',
+    $sourcePath,
+    (Join-Path $projectRoot 'BrandUI.cs'),
+    $uiSourcePath,
+    $previewSourcePath,
+    $nativeSourcePath,
     $usbSourcePath
+)
+& $compilerPath $compilerArguments
 
 if ($LASTEXITCODE -ne 0) {
     throw "编译失败，退出码：$LASTEXITCODE"
