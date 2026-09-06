@@ -1,113 +1,114 @@
-# Phone USB Camera
+# U镜 · UCam
 
-把 Android 手机的高清摄像头通过 USB 变成 Windows 虚拟摄像头，不经过 DroidCam 视频链路，不添加水印。
+把 Android 手机通过 USB 变成无水印 Windows 摄像头。中文名称为 U镜，英文为 UCam；无需安装或启动 OBS。
+
+应用已更名，Windows 摄像头设备名暂保留 **Phone USB Camera**，以兼容现有 OpenScreen 设置。设备标识、注册和视频传输协议均未改变。
+
+> 当前版本为 v3.0.1 Windows 安装版。旧 v2.1.1 发行包仍使用 OBS，不要混用。验证范围见 [技术与验证记录](NATIVE_CAMERA_PROTOTYPE.md)。
+
+## 普通用户一键安装
+
+[![下载 U镜 Windows 安装版](https://img.shields.io/badge/Windows-下载_U镜安装版-ff643d?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/wtgjx/usb-phone-camera-no-watermark/releases/latest/download/UCam-Setup-win64.exe)
+
+点击上面的按钮下载 `UCam-Setup-win64.exe`，双击即可安装。无需下载源码，也不需要使用 PowerShell。安装程序会：
+
+- 将 U镜及运行组件安装到当前用户的应用目录；
+- 自动注册 `Phone USB Camera`，无需手动运行 PowerShell；
+- 在桌面和开始菜单创建“U镜”入口；
+- 提供标准卸载，并且不修改 OBS 或其他摄像头。
+
+安装完成后，连接 Android 手机、开启 USB 调试并在手机上允许这台电脑，然后打开桌面的“U镜”。首次公开下载的未签名安装包可能触发 Windows SmartScreen 提示；正式公开发行应增加可信代码签名。
+
+## 使用
+
+1. 用支持数据传输的 USB 线连接 Android 手机，开启 USB 调试并在手机上允许授权。
+2. 安装版会自动注册摄像头；仅便携开发包需要运行 `install-camera.ps1 -Mode Install`。
+3. 打开桌面的“U镜”，选择镜头，建议先用 **1080p**，点击「启动摄像头」。
+4. 在 OpenScreen 开启摄像头，选择 **Phone USB Camera**，再正常录制。
+5. 使用结束点击「停止输出」或关闭本程序。OpenScreen 不会被关闭。
+
+本次开发使用的电脑已经完成注册。`dist` 是便携开发输出，不能只复制 EXE；面向普通用户请发布完整 Windows 安装包。
+
+如果 OpenScreen 已经打开但列表没有新摄像头，保存当前项目后重新打开 OpenScreen。不要选择旧的 `OBS Virtual Camera`。
+
+## 界面与画质
+
+- 浅色单窗口，参考 OpenScreen 的紧凑顶栏、大预览和右侧设置面板，使用维护者提供的橙色品牌图标。
+- 预览下方为画面控制；运行日志在左侧展开，不挤压右侧启停操作。默认和最小窗口布局均检查无侧栏滚动。
+- 程序、窗口标题、任务栏图标与 EXE 图标统一使用 U镜 / UCam 品牌。完整设计说明见 [UI_DESIGN.md](UI_DESIGN.md)。
+- 左转/右转 90°、水平镜像会作用于输出；「适应/填满」只改变本程序的预览布局。
+- 预览不再依赖另一个 scrcpy 窗口。虚拟摄像头直接接收视频帧，最小化不会主动停止视频接收。
+- 默认 1080p30；720p 可降低负载。
+- **2K/4K 是实验档，帧率未保证。** 当前软件解码没有通过稳定 4K30 验证。手机的拍照像素也不等于 Camera2 开放的视频分辨率。
+- 切换镜头或画质前请停止本次会话。开始录制后建议保持分辨率和方向不变。
+
+## 工作方式
 
 ```text
-Android Camera2 → USB/ADB → scrcpy Camera Mode → OBS Virtual Camera → OpenScreen
+Android Camera2 / H.264 → USB / ADB → Windows 内置解码器
+    → 独立 Phone USB Camera 组件 → OpenScreen
 ```
 
-所有视频数据只经过 USB 和本机，程序不上传摄像头画面。
+视频只在手机和本机处理，不上传。手机运行临时 scrcpy 4.1 服务端；电脑在本程序内解码，不运行 OBS 或 scrcpy 桌面预览窗口。扫描镜头时会短暂调用 scrcpy 的命令行查询功能。
 
-## 功能
+这是一台软件虚拟摄像头，不会把手机固件改成实体 UVC 摄像头。目前面向 Windows 64 位 DirectShow 桌面应用，不承诺兼容所有 UWP/Windows 相机应用。
 
-- 苹果风格的简约白色单窗口界面，实时画面、连接状态和常用控制集中在同一页；
-- scrcpy 仍在后台提供原始高分辨率画面，但不再显示独立任务栏窗口；
-- 运行中可直接左转 90°、右转 90°、水平镜像，并切换预览的适应/填满模式；
-- 运行日志默认收起，需要排查时再展开；
-- 自动刷新 USB 连接与输出状态，支持 Windows 显示缩放和小窗口设置区滚动；
-- 通过 USB/ADB 读取 Android Camera2 镜头；
-- 扫描前摄、后摄和手机开放的视频尺寸；
-- 提供 720p30、1080p30、2K30 和 4K30 档位；
-- 高画质启动失败时可自动回退到 1080p30 H.264；
-- 自动创建独立的 `PhoneUsbCamera` OBS 场景集；
-- 确认 OBS Virtual Camera 真正启动后才打开 OpenScreen；
-- v2.1.1 修复集成预览导致的虚拟摄像头黑屏，启动时还会读取实际输出帧，纯黑或读帧失败会重试并提示；
-- 检测摄像头被抢占、USB 断连和 OBS 启动失败，避免误报成功。
+## 要求与本机改动
 
-## 系统要求
+- Windows 10/11 64 位、.NET Framework 4.8、系统 H.264 解码组件。
+- Android 12 或更高版本，支持 Camera2 的手机和 USB 数据线。
+- 不要求 OBS、Unity 或 DroidCam。
+- 注册仅写入当前 Windows 用户的 3 个项目专用注册表项，组件复制到 `%LOCALAPPDATA%\PhoneUsbCamera\VirtualCamera`。
+- 不修改 OpenScreen 文件、OBS 配置或其他摄像头注册，不强制结束手机上的其他相机应用。
+- 停止时只清理本次创建的 ADB 转发、临时服务端和本程序持有的画面。
 
-- Windows 10/11 64-bit；
-- Android 12 或更高版本；
-- 支持数据传输的 USB 线，手机已开启 USB 调试；
-- [OBS Studio](https://obsproject.com/) 及 OBS Virtual Camera；
-- [OpenScreen](https://github.com/getopenscreen/openscreen)。
-
-## 直接使用
-
-1. 从 GitHub Releases 下载 `phone-usb-camera-v2.1.1-win64.zip` 并完整解压；
-2. 手机开启 USB 调试，连接电脑后在手机上允许调试授权；
-3. 确认手机相机、视频通话和直播应用已关闭；
-4. 在解压后的文件夹中双击 `无水印手机USB摄像头.exe`；如果是源码目录，文件位于 `dist` 文件夹；
-5. 选择镜头与画质；需要刷新设备时点击「重新扫描手机镜头」；
-6. 点击「启动摄像头」；
-7. 在 OpenScreen 的摄像头列表选择 `OBS Virtual Camera`。
-
-启动成功后，手机画面会直接显示在主界面中。后台仍会运行 scrcpy 和专用 OBS 进程，以便保持原始分辨率并输出虚拟摄像头；请通过主界面的「停止本次会话」结束它们，不要在任务管理器中单独结束后台源。
-
-如果 OpenScreen 没有立刻出现画面，请先确认选中的是 `OBS Virtual Camera`。仍无画面时，在主界面停止会话后重新启动，让 OBS 重新绑定手机画面。
-
-使用完可点击「停止本次会话」。正常启动完成后直接关闭控制程序，也会停止由该实例启动的 scrcpy 和 OBS；OpenScreen 保持打开。
-
-## 画面控制
-
-- 「左转 90° / 右转 90°」用于纠正手机横竖方向；
-- 「水平镜像」适合自拍和讲解场景；
-- 「适应 / 填满」只改变主界面的预览构图，不降低 OBS Virtual Camera 的原始输出分辨率。
-
-## 从源码构建
-
-在 Windows PowerShell 中运行：
+卸载此独立摄像头的注册：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-camera.ps1 -Mode Uninstall
 ```
 
-构建脚本会：
+卸载脚本保留组件文件，便于恢复，不卸载其他摄像头。
 
-1. 使用 Windows/.NET Framework 自带的 C# 编译器；
-2. 在本地缺少运行库时下载官方 scrcpy 4.1 Windows 64-bit 压缩包；
-3. 校验 scrcpy 压缩包的 SHA-256；
-4. 编译控制界面、后台会话和集成预览组件；
-5. 在 `dist` 目录生成可执行程序和完整运行文件。
+## 构建与测试
 
-布局回归检查（不显示窗口、不启动手机摄像头）：
+源码构建需要 Visual Studio 2022 C++ Build Tools、Windows SDK、Windows 自带的 .NET Framework C# 编译器。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test.ps1
 ```
 
-检查默认窗口、最小窗口和展开运行详情时的标题间距、预览控制与主按钮尺寸。此检查不代替手机、OBS 和目标应用的真机测试。
+构建会先编译原生组件并运行合成像素测试，再构建界面。缺少 scrcpy 时下载固定版本的官方发行包并核对 SHA-256。构建和布局测试均不会注册摄像头或开启手机镜头。
 
-可选的真机回归检查（会短暂使用手机镜头；请先停止现有会话并退出 OBS 与 OpenScreen）：
+安装包使用 Inno Setup 6 构建：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\test-capture.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build-installer.ps1
 ```
 
-它会按集成预览模式启动手机和专用 OBS 会话，读取虚拟摄像头亮度统计，并在结束时停止测试进程。不保存画面，不打开 OpenScreen。启动读帧检查使用 OpenScreen 自带的 `ffmpeg-shared.exe`；镜头完全遮挡或其他软件独占虚拟摄像头时可能无法通过，应解除后重试。
+构建、测试和发布脚本只供维护者使用。普通用户运行安装包和 U镜本体时不需要执行 PowerShell。推送 `vMAJOR.MINOR.PATCH` 标签后，GitHub Actions 会构建安装包、SHA-256 校验文件并添加到对应 Release。
 
-## 已验证环境
+可选真机回归测试（会短暂使用手机；先停止现有摄像头会话）：
 
-- Windows 11 25H2；
-- Android 16，Xiaomi 24031PN0DC；
-- 后摄 Camera ID 0；
-- `3840×2160 @ 30fps`；
-- scrcpy 4.1；
-- OBS Studio 32.2.2；
-- OpenScreen 1.10.0。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test-capture.ps1
+```
 
-手机宣传的拍照像素不等于可用的虚拟摄像头分辨率。本工具使用的是 Camera2 实际开放的视频尺寸。
+真机脚本检查两次启停、预览旋转、关闭预览后的输出、通过实际注册读取的连续帧。不保存照片或视频，不打开 OBS/OpenScreen。它不代替 OpenScreen 的真实录制测试。
 
-## 本机改动范围
+## 当前验证状态
 
-- 不会卸载 DroidCam，不会清除手机应用数据；
-- 启动时会临时结束手机的默认相机和 DroidCam 后台，释放镜头；
-- 不会修改 OpenScreen 文件；
-- 只会创建或更新名为 `PhoneUsbCamera` 的专用 OBS 场景集与配置；
-- OBS 上次未正常关闭时，会将 `.sentinel` 异常标记移到 `%LOCALAPPDATA%\PhoneUsbCamera\obs-sentinel-backups` 保留，防止安全模式提示阻断自动启动。
+- 原生像素测试、C++/C# 构建和三种窗口布局检查通过。
+- Xiaomi 24031PN0DC / Android 16，1080p 已实测连续输出。
+- 已注册组件的读取测试：8 秒 235 帧，235 次画面指纹变化，没有非递增时间戳；测试时无 OBS 或 scrcpy 桌面进程。
+- 已观察到 OpenScreen 选中 Phone USB Camera 并显示手机预览。
+- 用户于 2026-09-06 手动确认：录下的手机画面可以在 OpenScreen 中观看。这是用户的真机验收反馈；未额外解析该录制文件。
+- Windows 安装包已完成编译和静态校验；全新 Windows 用户环境的安装、升级和卸载闭环仍待扩大测试。
+- 新增两次启停自动回归尚未完整执行：检测到已有独立会话后安全退出，未抢占用户镜头。长时间运行、拔插恢复及 4K30 仍需进一步测试。
 
-## 许可证
+v2 的历史辅助类目前保留在源码中，但 v3 主界面和诊断使用独立后端；旧 `--prepare-obs` / `--start-session` 入口已禁用，不会从这些入口启动 OBS。
 
-本项目源码使用 [MIT License](LICENSE)。
+## 开源许可
 
-scrcpy 使用 Apache License 2.0，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)以及发行包中的 `scrcpy/LICENSE.txt`。
+项目代码为 [MIT](LICENSE)。独立滤镜改编自 MIT 授权的 UnityCapture，保留作者与 DirectShow 基类版权声明；scrcpy 使用 Apache License 2.0。完整声明随程序包提供，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

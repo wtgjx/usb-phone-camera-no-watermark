@@ -3,6 +3,8 @@ dist/
 vendor/
 test-output/
 release-dist/
+native-dist/
+.tools/
 *.zip
 
 # Local diagnostics and end-to-end reports

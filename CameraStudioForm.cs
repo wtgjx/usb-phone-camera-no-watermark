@@ -9,13 +9,13 @@ namespace PhoneUsbCamera
 {
     internal sealed class CameraStudioForm : Form
     {
-        private static readonly Color Canvas = Color.FromArgb(247, 247, 245);
+        private static readonly Color Canvas = Color.FromArgb(248, 249, 251);
         private static readonly Color Surface = Color.White;
-        private static readonly Color TextPrimary = Color.FromArgb(29, 29, 31);
-        private static readonly Color TextSecondary = Color.FromArgb(110, 110, 115);
-        private static readonly Color Border = Color.FromArgb(229, 229, 231);
-        private static readonly Color Primary = Color.FromArgb(29, 29, 31);
-        private static readonly Color Blue = Color.FromArgb(0, 113, 227);
+        private static readonly Color TextPrimary = UCamBrand.Ink;
+        private static readonly Color TextSecondary = UCamBrand.Muted;
+        private static readonly Color Border = Color.FromArgb(230, 233, 238);
+        private static readonly Color Primary = UCamBrand.Accent;
+        private static readonly Color Blue = UCamBrand.Accent;
         private static readonly Color Success = Color.FromArgb(36, 138, 61);
         private static readonly Color SuccessBackground = Color.FromArgb(237, 247, 239);
         private static readonly Color Warning = Color.FromArgb(154, 77, 0);
@@ -24,9 +24,13 @@ namespace PhoneUsbCamera
         private static readonly Color ErrorBackground = Color.FromArgb(255, 240, 241);
         private static readonly Color PreviewBackground = Color.FromArgb(18, 18, 20);
 
-        private readonly BridgeService _bridge;
-        private readonly IntegratedPreviewHost _previewHost;
+        private readonly NativeBridgeService _bridge;
+        private readonly NativePreviewHost _previewHost;
         private readonly TableLayoutPanel _root;
+        private TableLayoutPanel _previewLayout;
+        private Image _brandImage;
+        private readonly ToolTip _toolTips = new ToolTip();
+        private bool _uiDisposed;
         private readonly PreviewCanvas _previewCanvas;
         private PillLabel _topStatus;
         private Label _previewStatus;
@@ -58,160 +62,99 @@ namespace PhoneUsbCamera
         private readonly Timer _statusTimer;
         private bool _polling;
         private bool _closing;
+        private bool _closeApproved;
 
         internal CameraStudioForm()
         {
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            _bridge = new BridgeService();
-            _previewHost = new IntegratedPreviewHost();
+            _bridge = new NativeBridgeService();
+            _previewHost = new NativePreviewHost(_bridge);
             _statusTimer = new Timer();
             _statusTimer.Interval = 4000;
             _statusTimer.Tick += async delegate { await PollStatusAsync(); };
 
-            Text = "USB 手机摄像头";
+            Text = "U镜 · UCam";
+            Icon = UCamBrand.LoadIcon();
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(1240, 790);
-            MinimumSize = new Size(1040, 680);
+            Size = new Size(1200, 760);
+            MinimumSize = new Size(1000, 680);
             BackColor = Canvas;
             ForeColor = TextPrimary;
-            Font = UiFont(9.5F, FontStyle.Regular);
+            Font = UiFont(9F, FontStyle.Regular);
             DoubleBuffered = true;
 
-            _root = new TableLayoutPanel();
-            _root.Dock = DockStyle.Fill;
-            _root.BackColor = Canvas;
-            _root.Padding = new Padding(28, 20, 28, 14);
-            _root.ColumnCount = 1;
-            _root.RowCount = 4;
+            _root = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Canvas,
+                Padding = new Padding(0), Margin = new Padding(0), ColumnCount = 1, RowCount = 4 };
             _root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96F));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68F));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0F));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
             Controls.Add(_root);
+            _root.Controls.Add(BuildHeader(), 0, 0);
 
-            Panel header = BuildHeader();
-            _root.Controls.Add(header, 0, 0);
-
-            TableLayoutPanel body = new TableLayoutPanel();
-            body.Dock = DockStyle.Fill;
-            body.BackColor = Canvas;
-            body.ColumnCount = 2;
-            body.RowCount = 1;
-            body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 69F));
-            body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 31F));
+            TableLayoutPanel body = new TableLayoutPanel { Name = "Workspace", Dock = DockStyle.Fill,
+                BackColor = Canvas, Margin = new Padding(0), Padding = new Padding(24, 18, 24, 12),
+                ColumnCount = 2, RowCount = 1 };
+            body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 312F));
             body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             _root.Controls.Add(body, 0, 1);
 
-            RoundedPanel previewCard = new RoundedPanel();
-            previewCard.Dock = DockStyle.Fill;
-            previewCard.Margin = new Padding(0, 0, 10, 10);
-            previewCard.FillColor = Surface;
-            previewCard.BorderColor = Border;
-            previewCard.CornerRadius = 14;
-            previewCard.Padding = new Padding(18);
-            body.Controls.Add(previewCard, 0, 0);
+            _previewLayout = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Canvas,
+                Margin = new Padding(0, 0, 22, 0), ColumnCount = 1, RowCount = 4 };
+            _previewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _previewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+            _previewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            _previewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54F));
+            _previewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0F));
+            body.Controls.Add(_previewLayout, 0, 0);
 
-            TableLayoutPanel previewLayout = new TableLayoutPanel();
-            previewLayout.Dock = DockStyle.Fill;
-            previewLayout.BackColor = Surface;
-            previewLayout.ColumnCount = 1;
-            previewLayout.RowCount = 3;
-            previewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            previewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
-            previewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            previewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 62F));
-            previewCard.Controls.Add(previewLayout);
-
-            TableLayoutPanel previewHeader = new TableLayoutPanel();
-            previewHeader.Dock = DockStyle.Fill;
-            previewHeader.BackColor = Surface;
-            previewHeader.ColumnCount = 2;
-            previewHeader.RowCount = 1;
+            TableLayoutPanel previewHeader = new TableLayoutPanel { Dock = DockStyle.Fill,
+                Margin = new Padding(0), BackColor = Canvas, ColumnCount = 2, RowCount = 1 };
+            previewHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43F));
+            previewHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 57F));
             previewHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            previewHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
-            previewHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
-            _previewStatus = new Label();
-            _previewStatus.Dock = DockStyle.Fill;
-            _previewStatus.Text = "实时画面";
-            _previewStatus.TextAlign = ContentAlignment.MiddleLeft;
-            _previewStatus.Font = UiFont(11.5F, FontStyle.Bold);
-            _previewStatus.ForeColor = TextPrimary;
-            _previewMeta = new Label();
-            _previewMeta.Dock = DockStyle.Fill;
-            _previewMeta.Text = "等待连接";
+            _previewStatus = MakeLabel("摄像头预览", 9.3F, true);
+            _previewMeta = MakeLabel("等待连接", 8.5F, false);
             _previewMeta.TextAlign = ContentAlignment.MiddleRight;
-            _previewMeta.Font = UiFont(9F, FontStyle.Regular);
-            _previewMeta.ForeColor = TextSecondary;
             previewHeader.Controls.Add(_previewStatus, 0, 0);
             previewHeader.Controls.Add(_previewMeta, 1, 0);
-            previewLayout.Controls.Add(previewHeader, 0, 0);
+            _previewLayout.Controls.Add(previewHeader, 0, 0);
 
-            _previewCanvas = new PreviewCanvas();
-            _previewCanvas.Dock = DockStyle.Fill;
-            _previewCanvas.Margin = new Padding(0);
-            _previewCanvas.BackColor = PreviewBackground;
-            previewLayout.Controls.Add(_previewCanvas, 0, 1);
+            _previewCanvas = new PreviewCanvas { Name = "CameraPreview", Dock = DockStyle.Fill,
+                Margin = new Padding(0), BackColor = Canvas };
+            _previewLayout.Controls.Add(_previewCanvas, 0, 1);
 
-            TableLayoutPanel toolbar = new TableLayoutPanel();
-            toolbar.Dock = DockStyle.Fill;
-            toolbar.BackColor = Surface;
-            toolbar.ColumnCount = 2;
-            toolbar.RowCount = 1;
-            toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 76F));
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
-            FlowLayoutPanel transformButtons = new FlowLayoutPanel();
-            transformButtons.Dock = DockStyle.Fill;
-            transformButtons.FlowDirection = FlowDirection.LeftToRight;
-            transformButtons.WrapContents = false;
-            transformButtons.Padding = new Padding(0, 13, 0, 0);
-            transformButtons.BackColor = Surface;
-            _rotateLeftButton = MakeCompactButton("左转 90°", 92);
-            _rotateRightButton = MakeCompactButton("右转 90°", 92);
-            _mirrorButton = MakeCompactButton("水平镜像", 96);
-            _fitButton = MakeCompactButton("适应", 70);
-            transformButtons.Controls.Add(_rotateLeftButton);
-            transformButtons.Controls.Add(_rotateRightButton);
-            transformButtons.Controls.Add(_mirrorButton);
-            transformButtons.Controls.Add(_fitButton);
-            Label privacy = new Label();
-            privacy.Dock = DockStyle.Fill;
-            privacy.Text = "仅在本机处理";
-            privacy.TextAlign = ContentAlignment.MiddleRight;
-            privacy.Font = UiFont(8.8F, FontStyle.Regular);
-            privacy.ForeColor = TextSecondary;
-            toolbar.Controls.Add(transformButtons, 0, 0);
-            toolbar.Controls.Add(privacy, 1, 0);
-            previewLayout.Controls.Add(toolbar, 0, 2);
+            FlowLayoutPanel toolbar = new FlowLayoutPanel { Name = "PreviewToolbar", Dock = DockStyle.Fill,
+                BackColor = Canvas, Margin = new Padding(0), Padding = new Padding(0, 12, 0, 0),
+                WrapContents = false };
+            _rotateLeftButton = MakeCompactButton("左转 90°", 90);
+            _rotateRightButton = MakeCompactButton("右转 90°", 90);
+            _mirrorButton = MakeCompactButton("水平镜像", 90);
+            _fitButton = MakeCompactButton("适应", 68);
+            toolbar.Controls.AddRange(new Control[] { _rotateLeftButton, _rotateRightButton, _mirrorButton, _fitButton });
+            _previewLayout.Controls.Add(toolbar, 0, 2);
 
             RoundedPanel sidebar = BuildSidebar();
-            sidebar.Margin = new Padding(10, 0, 0, 10);
+            sidebar.Name = "DeviceInspector";
+            sidebar.Margin = new Padding(0);
             body.Controls.Add(sidebar, 1, 0);
-
             _detailsPanel = BuildDetailsPanel();
-            _detailsPanel.Margin = new Padding(0, 2, 0, 10);
-            _root.Controls.Add(_detailsPanel, 0, 2);
+            _detailsPanel.Margin = new Padding(0);
+            _previewLayout.Controls.Add(_detailsPanel, 0, 3);
 
-            TableLayoutPanel footer = new TableLayoutPanel();
-            footer.Dock = DockStyle.Fill;
-            footer.BackColor = Canvas;
-            footer.ColumnCount = 2;
-            footer.RowCount = 1;
+            TableLayoutPanel footer = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Surface,
+                Margin = new Padding(0), Padding = new Padding(24, 0, 20, 0), ColumnCount = 2, RowCount = 1 };
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112F));
             footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            Label footerText = new Label();
-            footerText.Dock = DockStyle.Fill;
-            footerText.Text = "无水印 · USB 直连 · 画面仅在本机处理";
-            footerText.TextAlign = ContentAlignment.MiddleLeft;
-            footerText.Font = UiFont(8.7F, FontStyle.Regular);
-            footerText.ForeColor = TextSecondary;
-            _detailsButton = MakeLinkButton("查看运行详情");
-            _detailsButton.Dock = DockStyle.Right;
-            _detailsButton.Width = 132;
+            Label footerText = MakeLabel("USB 直连  /  无水印  /  仅在本机处理", 8F, false);
+            _detailsButton = MakeLinkButton("运行日志");
+            _detailsButton.Dock = DockStyle.Fill;
+            _detailsButton.Margin = new Padding(0);
             footer.Controls.Add(footerText, 0, 0);
             footer.Controls.Add(_detailsButton, 1, 0);
             _root.Controls.Add(footer, 0, 3);
@@ -220,9 +163,15 @@ namespace PhoneUsbCamera
             _cameraCombo.SelectedIndex = 0;
             foreach (QualityPreset preset in QualityPreset.All())
             {
+                if(preset.Width>1920) preset.DisplayName = (preset.Width==3840?"4K":"2K") + " · 实验档，帧率未保证";
                 _qualityCombo.Items.Add(preset);
             }
-            _qualityCombo.SelectedIndex = 2;
+            _qualityCombo.SelectedIndex = 1;
+            _cameraCombo.SelectedIndexChanged += delegate {
+                CameraInfo camera = _cameraCombo.SelectedItem as CameraInfo;
+                _toolTips.SetToolTip(_cameraCombo, camera == null ? "" : camera.DisplayName);
+            };
+            _toolTips.SetToolTip(_qualityCombo, "1080p 为默认档。2K / 4K 帧率尚未保证。");
 
             _scanButton.Click += async delegate { await ScanCamerasAsync(true); };
             _startButton.Click += async delegate { await StartSessionAsync(); };
@@ -253,161 +202,98 @@ namespace PhoneUsbCamera
             ResumeLayout(true);
         }
 
+        private static Label MakeLabel(string text, float size, bool bold)
+        {
+            return new Label { Text = text, Dock = DockStyle.Fill, Margin = new Padding(0),
+                TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, BackColor = Color.Transparent,
+                Font = UiFont(size, bold ? FontStyle.Bold : FontStyle.Regular),
+                ForeColor = bold ? TextPrimary : TextSecondary };
+        }
+
         private Panel BuildHeader()
         {
-            TableLayoutPanel header = new TableLayoutPanel();
-            header.Dock = DockStyle.Fill;
-            header.BackColor = Canvas;
-            header.ColumnCount = 2;
-            header.RowCount = 1;
+            TableLayoutPanel header = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Surface,
+                Margin = new Padding(0), Padding = new Padding(24, 10, 24, 10), ColumnCount = 4, RowCount = 1 };
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 175F));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 106F));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156F));
             header.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 72F));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
-
-            Panel brand = new Panel();
-            brand.Dock = DockStyle.Fill;
-            brand.BackColor = Canvas;
-            Label title = new Label();
-            title.AutoSize = true;
-            title.Text = "USB 手机摄像头";
-            title.Location = new Point(0, 0);
-            title.Font = DisplayFont(21F, FontStyle.Bold);
-            title.ForeColor = TextPrimary;
-            Label subtitle = new Label();
-            subtitle.AutoSize = true;
-            subtitle.Text = "把安卓手机的高清镜头变成无水印电脑摄像头";
-            subtitle.Location = new Point(2, 45);
-            subtitle.Font = UiFont(9.3F, FontStyle.Regular);
-            subtitle.ForeColor = TextSecondary;
-            brand.Controls.Add(title);
-            brand.Controls.Add(subtitle);
-
-            Panel statusHolder = new Panel();
-            statusHolder.Dock = DockStyle.Fill;
-            statusHolder.BackColor = Canvas;
-            _topStatus = new PillLabel();
-            _topStatus.Text = "正在检测";
-            _topStatus.Size = new Size(104, 30);
-            _topStatus.Location = new Point(statusHolder.Width - 104, 8);
-            _topStatus.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            _topStatus.PillBackColor = Color.FromArgb(241, 241, 243);
-            _topStatus.PillForeColor = TextSecondary;
-            statusHolder.Controls.Add(_topStatus);
-
-            header.Controls.Add(brand, 0, 0);
-            header.Controls.Add(statusHolder, 1, 0);
+            Panel brand = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0), BackColor = Surface };
+            _brandImage = UCamBrand.LoadImage();
+            PictureBox logo = new PictureBox { Image = _brandImage, SizeMode = PictureBoxSizeMode.Zoom,
+                Location = new Point(0, 4), Size = new Size(40, 40), AccessibleName = "U镜 UCam 图标" };
+            Label title = MakeLabel("U镜", 16F, true);
+            title.Dock = DockStyle.None; title.Location = new Point(50, 0); title.Size = new Size(110, 29);
+            Label subtitle = MakeLabel("UCam", 8.5F, false);
+            subtitle.Dock = DockStyle.None; subtitle.Location = new Point(51, 29); subtitle.Size = new Size(108, 18);
+            brand.Controls.AddRange(new Control[] { logo, title, subtitle });
+            Label workspace = MakeLabel("摄像头工作台", 9F, false);
+            workspace.Padding = new Padding(16, 0, 0, 0);
+            _topStatus = new PillLabel { Text = "正在检测", Anchor = AnchorStyles.None, Size = new Size(94, 28) };
+            _openScreenButton = MakeSecondaryButton("打开 OpenScreen");
+            _openScreenButton.Dock = DockStyle.Fill;
+            _openScreenButton.Margin = new Padding(12, 5, 0, 5);
+            header.Controls.Add(brand, 0, 0); header.Controls.Add(workspace, 1, 0);
+            header.Controls.Add(_topStatus, 2, 0); header.Controls.Add(_openScreenButton, 3, 0);
             return header;
         }
 
         private RoundedPanel BuildSidebar()
         {
-            RoundedPanel sidebar = new RoundedPanel();
-            sidebar.Dock = DockStyle.Fill;
-            sidebar.FillColor = Surface;
-            sidebar.BorderColor = Border;
-            sidebar.CornerRadius = 14;
-            sidebar.Padding = new Padding(20, 16, 20, 16);
-            sidebar.AutoScroll = true;
-
-            TableLayoutPanel layout = new TableLayoutPanel();
-            layout.Dock = DockStyle.Top;
-            layout.AutoSize = true;
-            layout.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            layout.BackColor = Surface;
-            layout.ColumnCount = 1;
-            layout.RowCount = 11;
+            RoundedPanel sidebar = new RoundedPanel { Dock = DockStyle.Fill, FillColor = Surface,
+                BorderColor = Border, CornerRadius = 16, Padding = new Padding(18, 12, 18, 12),
+                AutoScroll = true };
+            TableLayoutPanel layout = new TableLayoutPanel { Name = "InspectorFields",
+                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = new Padding(0), BackColor = Surface, ColumnCount = 1, RowCount = 10 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 112F));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0F));
+            foreach (float height in new float[] { 30, 64, 66, 66, 32, 14, 48, 36, 62, 40 })
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
             sidebar.Controls.Add(layout);
+            layout.Controls.Add(MakeLabel("设备与输出", 11F, true), 0, 0);
 
-            Label heading = new Label();
-            heading.Dock = DockStyle.Fill;
-            heading.Text = "连接与输出";
-            heading.TextAlign = ContentAlignment.MiddleLeft;
-            heading.Font = UiFont(12F, FontStyle.Bold);
-            heading.ForeColor = TextPrimary;
-            layout.Controls.Add(heading, 0, 0);
-
-            _devicePanel = new RoundedPanel();
-            _devicePanel.Dock = DockStyle.Fill;
-            _devicePanel.Margin = new Padding(0, 0, 0, 10);
-            _devicePanel.FillColor = Color.FromArgb(246, 246, 248);
-            _devicePanel.BorderColor = Color.FromArgb(246, 246, 248);
-            _devicePanel.CornerRadius = 10;
-            _deviceDot = new StatusDot();
-            _deviceDot.Location = new Point(14, 18);
-            _deviceDot.Size = new Size(10, 10);
-            _deviceDot.DotColor = TextSecondary;
-            _deviceTitle = new Label();
-            _deviceTitle.AutoSize = true;
-            _deviceTitle.Location = new Point(34, 9);
-            _deviceTitle.Text = "正在检查手机";
-            _deviceTitle.Font = UiFont(9.5F, FontStyle.Bold);
-            _deviceTitle.ForeColor = TextPrimary;
-            _deviceDetail = new Label();
-            _deviceDetail.AutoEllipsis = true;
-            _deviceDetail.Location = new Point(34, 31);
-            _deviceDetail.Size = new Size(245, 18);
-            _deviceDetail.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            _deviceDetail.Text = "请稍候";
-            _deviceDetail.Font = UiFont(8.6F, FontStyle.Regular);
-            _deviceDetail.ForeColor = TextSecondary;
-            _devicePanel.Controls.Add(_deviceDot);
-            _devicePanel.Controls.Add(_deviceTitle);
-            _devicePanel.Controls.Add(_deviceDetail);
+            _devicePanel = new RoundedPanel { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 8),
+                FillColor = Color.FromArgb(245, 246, 248), BorderColor = Color.FromArgb(245, 246, 248),
+                CornerRadius = 10, Padding = new Padding(12, 7, 12, 7) };
+            TableLayoutPanel device = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent,
+                ColumnCount = 2, RowCount = 2, Margin = new Padding(0) };
+            device.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18));
+            device.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            device.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            device.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            _deviceDot = new StatusDot { Size = new Size(8, 8), Anchor = AnchorStyles.Left, Margin = new Padding(0) };
+            _deviceTitle = MakeLabel("正在检查手机", 9F, true);
+            _deviceDetail = MakeLabel("请稍候", 8F, false);
+            device.Controls.Add(_deviceDot, 0, 0);
+            device.Controls.Add(_deviceTitle, 1, 0); device.Controls.Add(_deviceDetail, 1, 1);
+            _devicePanel.Controls.Add(device);
             layout.Controls.Add(_devicePanel, 0, 1);
 
-            _cameraCombo = MakeComboBox();
-            _qualityCombo = MakeComboBox();
+            _cameraCombo = MakeComboBox(); _qualityCombo = MakeComboBox();
+            _cameraCombo.AccessibleName = "手机镜头"; _qualityCombo.AccessibleName = "输出画质";
             layout.Controls.Add(MakeField("手机镜头", _cameraCombo), 0, 2);
             layout.Controls.Add(MakeField("输出画质", _qualityCombo), 0, 3);
-
-            _scanButton = MakeSecondaryButton("重新扫描手机镜头");
-            _scanButton.Dock = DockStyle.Fill;
-            _scanButton.Margin = new Padding(0, 2, 0, 2);
+            _scanButton = MakeLinkButton("重新扫描镜头");
+            _scanButton.ButtonBackColor = Surface; _scanButton.BorderColor = Surface;
+            _scanButton.Dock = DockStyle.Fill; _scanButton.Margin = new Padding(0);
             layout.Controls.Add(_scanButton, 0, 4);
-
-            Panel divider = new Panel();
-            divider.Dock = DockStyle.Top;
-            divider.Height = 1;
-            divider.Margin = new Padding(0, 8, 0, 9);
-            divider.BackColor = Border;
+            Panel divider = new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Border,
+                Margin = new Padding(0, 10, 0, 9) };
             layout.Controls.Add(divider, 0, 5);
-
             _startButton = MakePrimaryButton("启动摄像头");
-            _startButton.Dock = DockStyle.Fill;
-            _startButton.Margin = new Padding(0, 1, 0, 5);
+            _startButton.Dock = DockStyle.Fill; _startButton.Margin = new Padding(0, 0, 0, 6);
             layout.Controls.Add(_startButton, 0, 6);
-
-            _stopButton = MakeSecondaryButton("停止本次会话");
-            _stopButton.Dock = DockStyle.Fill;
-            _stopButton.Margin = new Padding(0, 3, 0, 3);
+            _stopButton = MakeSecondaryButton("停止输出");
+            _stopButton.Dock = DockStyle.Fill; _stopButton.Margin = new Padding(0, 0, 0, 4);
             layout.Controls.Add(_stopButton, 0, 7);
-
-            _openScreenButton = MakeSecondaryButton("打开 OpenScreen");
-            _openScreenButton.Dock = DockStyle.Fill;
-            _openScreenButton.Margin = new Padding(0, 3, 0, 3);
-            _openScreenButton.ForeColor = Blue;
-            layout.Controls.Add(_openScreenButton, 0, 8);
-
-            _notice = new Label();
-            _notice.Dock = DockStyle.Fill;
-            _notice.Padding = new Padding(2, 12, 2, 0);
-            _notice.Text = "连接数据线并在手机上允许 USB 调试。启动后，在 OpenScreen 中选择 OBS Virtual Camera。";
-            _notice.Font = UiFont(8.8F, FontStyle.Regular);
-            _notice.ForeColor = TextSecondary;
-            layout.Controls.Add(_notice, 0, 9);
-
+            _notice = MakeLabel("连接手机，选择镜头，然后启动摄像头。", 8.3F, false);
+            _notice.TextAlign = ContentAlignment.TopLeft; _notice.Padding = new Padding(0, 12, 0, 0);
+            layout.Controls.Add(_notice, 0, 8);
+            Label output = MakeLabel("Windows 设备名\nPhone USB Camera", 8F, false);
+            output.BackColor = Color.FromArgb(247, 248, 250);
+            output.Padding = new Padding(10, 0, 0, 0);
+            layout.Controls.Add(output, 0, 9);
             return sidebar;
         }
 
@@ -447,17 +333,7 @@ namespace PhoneUsbCamera
 
         private static ComboBox MakeComboBox()
         {
-            ComboBox combo = new ComboBox();
-            combo.Dock = DockStyle.Fill;
-            combo.DropDownStyle = ComboBoxStyle.DropDownList;
-            combo.FlatStyle = FlatStyle.Flat;
-            combo.BackColor = Color.FromArgb(248, 248, 250);
-            combo.ForeColor = TextPrimary;
-            combo.Font = UiFont(9.4F, FontStyle.Regular);
-            combo.IntegralHeight = false;
-            combo.DropDownHeight = 220;
-            combo.DropDownWidth = 560;
-            return combo;
+            return new UCamComboBox { Dock = DockStyle.Fill };
         }
 
         private static Control MakeField(string caption, Control control)
@@ -467,8 +343,9 @@ namespace PhoneUsbCamera
             field.BackColor = Surface;
             field.ColumnCount = 1;
             field.RowCount = 2;
-            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));
-            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 35F));
+            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
+            field.Margin = new Padding(0);
             Label label = new Label();
             label.Dock = DockStyle.Fill;
             label.Text = caption;
@@ -487,8 +364,8 @@ namespace PhoneUsbCamera
             ModernButton button = new ModernButton();
             button.Text = text;
             button.ButtonBackColor = Primary;
-            button.HoverBackColor = Color.FromArgb(52, 52, 55);
-            button.PressedBackColor = Color.FromArgb(8, 8, 9);
+            button.HoverBackColor = Color.FromArgb(174, 57, 23);
+            button.PressedBackColor = Color.FromArgb(148, 48, 20);
             button.ButtonForeColor = Color.White;
             button.BorderColor = Primary;
             button.CornerRadius = 9;
@@ -527,7 +404,7 @@ namespace PhoneUsbCamera
             button.ButtonBackColor = Canvas;
             button.HoverBackColor = Color.FromArgb(239, 239, 240);
             button.PressedBackColor = Color.FromArgb(232, 232, 234);
-            button.ButtonForeColor = Blue;
+            button.ButtonForeColor = TextSecondary;
             button.BorderColor = Canvas;
             button.CornerRadius = 7;
             button.Font = UiFont(8.8F, FontStyle.Regular);
@@ -565,13 +442,13 @@ namespace PhoneUsbCamera
 
         private async Task PollStatusAsync()
         {
-            if (_busy || _polling || _closing) return;
+            if (_busy || _polling || _closing || _uiDisposed) return;
             _polling = true;
             try
             {
                 PhoneBridgeState state = await _bridge.InspectAsync();
                 if (_busy || _closing) return;
-                if (_sessionRunning && (!state.ScrcpyRunning || !state.ObsVirtualCameraActive))
+                if (_sessionRunning && !state.NativeOutputActive)
                 {
                     DetachPreview();
                     _sessionRunning = false;
@@ -644,9 +521,10 @@ namespace PhoneUsbCamera
             _previewCanvas.Subtitle = "请保持手机解锁，不要拔出数据线";
             _previewCanvas.Invalidate();
             AppendLog("准备启动：" + camera.DisplayName + "，" + preset.DisplayName);
+            bool cleanupAfterError = false;
             try
             {
-                SessionResult result = await _bridge.StartSessionAsync(camera, preset, AppendLog, AttachPreviewFromWorker);
+                SessionResult result = await _bridge.StartSessionAsync(camera, preset, AppendLog, AttachNativePreview);
                 AppendLog(result.Message);
                 if (!result.Success)
                 {
@@ -658,14 +536,14 @@ namespace PhoneUsbCamera
                 _sessionRunning = true;
                 _previewStatus.Text = "实时画面";
                 _previewMeta.Text = result.ActualQuality + " · USB";
-                ShowNotice("摄像头已启动。请在 OpenScreen 中选择 OBS Virtual Camera。", Success);
+                ShowNotice("摄像头已启动。在 OpenScreen 中选择 Phone USB Camera，无需 OBS。", Success);
                 PhoneBridgeState state = await _bridge.InspectAsync();
                 ApplyState(state);
             }
             catch (Exception ex)
             {
                 DetachPreview();
-                _bridge.StopSession();
+                cleanupAfterError = true;
                 _sessionRunning = false;
                 ShowNotice("启动异常：" + ex.Message, Error);
                 AppendLog("启动异常：" + ex.Message);
@@ -675,34 +553,16 @@ namespace PhoneUsbCamera
             {
                 SetBusy(false, null);
             }
+            if (cleanupAfterError) await StopSessionAsync();
         }
 
-        private void AttachPreviewFromWorker(int processId)
+        private void AttachNativePreview()
         {
-            Action attach = delegate
-            {
-                bool attached = _previewHost.Attach(this, _previewCanvas, processId);
-                if (attached)
-                {
-                    _previewCanvas.StateText = "";
-                    _previewCanvas.Subtitle = "";
-                    _previewCanvas.Invalidate();
-                    SetTransformButtons(true);
-                    AppendLog("手机画面已合并到主界面；后台高清源窗口已从任务栏隐藏。");
-                }
-                else
-                {
-                    AppendLog("未能立即合并实时预览；OBS 高清输出仍会继续启动。");
-                }
-            };
-            if (InvokeRequired)
-            {
-                Invoke(attach);
-            }
-            else
-            {
-                attach();
-            }
+            _previewHost.Attach(this, _previewCanvas);
+            _previewCanvas.StateText = "";
+            _previewCanvas.Subtitle = "";
+            SetTransformButtons(true);
+            AppendLog("预览和虚拟摄像头现在直接使用视频帧；最小化窗口不会停止输出。");
         }
 
         private async Task StopSessionAsync()
@@ -716,9 +576,9 @@ namespace PhoneUsbCamera
             try
             {
                 OperationResult result = await Task.Run(new Func<OperationResult>(_bridge.StopSession));
-                _sessionRunning = false;
+                _sessionRunning = _bridge.OutputActive;
                 AppendLog(result.Message);
-                ShowNotice("摄像头会话已停止，OpenScreen 保持打开。", TextSecondary);
+                ShowNotice(result.Message, result.Success ? TextSecondary : Warning);
                 PhoneBridgeState state = await _bridge.InspectAsync();
                 ApplyState(state);
             }
@@ -748,8 +608,8 @@ namespace PhoneUsbCamera
         {
             if (state.UsbDevice == null)
             {
-                SetConnectionState("未连接手机", "插入 USB 数据线并解锁手机", Error, ErrorBackground);
-                _topStatus.SetColors(ErrorBackground, Error);
+                SetConnectionState("等待连接手机", "插入 USB 数据线并解锁", TextSecondary, Color.FromArgb(245, 246, 248));
+                _topStatus.SetColors(Color.FromArgb(242, 244, 247), TextSecondary);
                 _topStatus.Text = "未连接";
             }
             else if (state.UsbDevice.State == "unauthorized")
@@ -773,13 +633,13 @@ namespace PhoneUsbCamera
                 }
                 SetConnectionState("手机已连接", detail, Success, SuccessBackground);
                 _topStatus.SetColors(SuccessBackground, Success);
-                _topStatus.Text = state.ObsVirtualCameraActive ? "正在输出" : "已连接";
+                _topStatus.Text = state.NativeOutputActive ? "正在输出" : "已连接";
             }
 
-            if (state.ObsVirtualCameraActive)
+            if (state.NativeOutputActive)
             {
                 _sessionRunning = true;
-                _previewStatus.Text = "实时画面";
+                _previewStatus.Text = "摄像头预览";
             }
             else if (!_busy)
             {
@@ -799,14 +659,14 @@ namespace PhoneUsbCamera
             _deviceDot.DotColor = accent;
             _devicePanel.FillColor = background;
             _devicePanel.BorderColor = background;
-            _devicePanel.Invalidate();
+            _devicePanel.Invalidate(true);
         }
 
         private void UpdateControlStates(PhoneBridgeState state)
         {
             bool connected = state != null && state.UsbDevice != null &&
                              state.UsbDevice.State == "device" && state.CameraModeCompatible;
-            bool outputRunning = state != null && (state.ScrcpyRunning || state.ObsVirtualCameraActive);
+            bool outputRunning = state != null && state.NativeReceiverRunning;
             _cameraCombo.Enabled = !_busy && !outputRunning;
             _qualityCombo.Enabled = !_busy && !outputRunning;
             _scanButton.Enabled = !_busy && !outputRunning;
@@ -850,8 +710,7 @@ namespace PhoneUsbCamera
 
         private void ApplyTransform(PreviewCommand command)
         {
-            IntPtr source = _previewHost.SourceHandle;
-            if (source == IntPtr.Zero || !PreviewShortcutSender.Send(source, command))
+            if (!_bridge.OutputActive)
             {
                 ShowNotice("画面控制暂时不可用，请停止后重新启动摄像头。", Error);
                 return;
@@ -868,8 +727,9 @@ namespace PhoneUsbCamera
             {
                 _mirrored = !_mirrored;
             }
-            _mirrorButton.ButtonBackColor = _mirrored ? Color.FromArgb(231, 241, 252) : Surface;
-            _mirrorButton.BorderColor = _mirrored ? Color.FromArgb(163, 204, 244) : Border;
+            _bridge.SetTransform(_rotation,_mirrored);
+            _mirrorButton.ButtonBackColor = _mirrored ? UCamBrand.AccentSoft : Surface;
+            _mirrorButton.BorderColor = _mirrored ? Primary : Border;
             _mirrorButton.Invalidate();
             _previewMeta.Text = (_rotation == 0 ? "原始方向" : "旋转 " + _rotation + "°") +
                                 (_mirrored ? " · 镜像" : "") + " · USB";
@@ -881,8 +741,8 @@ namespace PhoneUsbCamera
             _fillPreview = !_fillPreview;
             _previewHost.SetFillMode(_fillPreview);
             _fitButton.Text = _fillPreview ? "填满" : "适应";
-            _fitButton.ButtonBackColor = _fillPreview ? Color.FromArgb(231, 241, 252) : Surface;
-            _fitButton.BorderColor = _fillPreview ? Color.FromArgb(163, 204, 244) : Border;
+            _fitButton.ButtonBackColor = _fillPreview ? UCamBrand.AccentSoft : Surface;
+            _fitButton.BorderColor = _fillPreview ? Primary : Border;
             _fitButton.Invalidate();
         }
 
@@ -902,8 +762,8 @@ namespace PhoneUsbCamera
         private void ToggleDetails(bool visible)
         {
             _detailsVisible = visible;
-            _root.RowStyles[2].Height = visible ? 150F : 0F;
-            _detailsButton.Text = visible ? "收起运行详情" : "查看运行详情";
+            _previewLayout.RowStyles[3].Height = visible ? 150F * DeviceDpi / 96F : 0F;
+            _detailsButton.Text = visible ? "收起日志" : "运行日志";
             _detailsPanel.Visible = visible;
             _previewHost.UpdateLayout();
         }
@@ -912,11 +772,12 @@ namespace PhoneUsbCamera
         {
             _previewHost.Detach();
             _previewHost.SetFillMode(false);
+            _previewCanvas.FillFrame = false;
             _rotation = 0;
             _mirrored = false;
             _fillPreview = false;
-            _previewCanvas.StateText = "连接手机后，实时画面会显示在这里";
-            _previewCanvas.Subtitle = "无需单独打开第二个预览窗口";
+            _previewCanvas.StateText = "让手机成为你的摄像头";
+            _previewCanvas.Subtitle = "用 USB 连接安卓手机，即可开始高清拍摄";
             _previewCanvas.Invalidate();
             _previewMeta.Text = "等待连接";
             _mirrorButton.ButtonBackColor = Surface;
@@ -927,8 +788,10 @@ namespace PhoneUsbCamera
             SetTransformButtons(false);
         }
 
-        private void OnFormClosing(object sender, FormClosingEventArgs eventArgs)
+        private async void OnFormClosing(object sender, FormClosingEventArgs eventArgs)
         {
+            if (_closeApproved) return;
+            if (_closing) { eventArgs.Cancel = true; return; }
             if (_busy)
             {
                 eventArgs.Cancel = true;
@@ -936,10 +799,25 @@ namespace PhoneUsbCamera
                 return;
             }
             _closing = true;
+            eventArgs.Cancel = true;
             _statusTimer.Stop();
-            _statusTimer.Dispose();
-            _previewHost.Dispose();
-            _bridge.StopSession();
+            _previewHost.Detach();
+            SetBusy(true, "正在释放手机镜头…");
+            try
+            {
+                OperationResult result = await Task.Run(new Func<OperationResult>(_bridge.StopSession));
+                if (result.Success)
+                {
+                    _closeApproved = true;
+                    Close();
+                    return;
+                }
+                ShowNotice(result.Message, Warning);
+            }
+            catch (Exception ex) { ShowNotice("关闭前清理失败：" + ex.Message, Error); }
+            _closing = false;
+            SetBusy(false, null);
+            _statusTimer.Start();
         }
 
         private void AppendLog(string message)
@@ -947,7 +825,8 @@ namespace PhoneUsbCamera
             if (_closing || IsDisposed || !IsHandleCreated) return;
             if (InvokeRequired)
             {
-                BeginInvoke(new Action<string>(AppendLog), message);
+                try { BeginInvoke(new Action<string>(AppendLog), message); }
+                catch (InvalidOperationException) { /* Window is being disposed. */ }
                 return;
             }
             string clean = (message ?? string.Empty).Trim();
@@ -955,6 +834,7 @@ namespace PhoneUsbCamera
             {
                 return;
             }
+            if (_logBox.TextLength > 60000) _logBox.Clear();
             _logBox.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + clean + Environment.NewLine);
             _logBox.SelectionStart = _logBox.TextLength;
             _logBox.ScrollToCaret();
@@ -962,12 +842,24 @@ namespace PhoneUsbCamera
 
         private static Font UiFont(float size, FontStyle style)
         {
-            return new Font("Segoe UI Variable Text", size, style, GraphicsUnit.Point);
+            return UCamBrand.Font(size, style);
         }
 
         private static Font DisplayFont(float size, FontStyle style)
         {
-            return new Font("Segoe UI Variable Display", size, style, GraphicsUnit.Point);
+            return UCamBrand.Font(size, style);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && !_uiDisposed)
+            {
+                _uiDisposed = true;
+                _statusTimer.Dispose(); _previewHost.Dispose(); _toolTips.Dispose();
+                if (_brandImage != null) _brandImage.Dispose();
+                if (Icon != null) Icon.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 
@@ -1099,64 +991,76 @@ namespace PhoneUsbCamera
 
     internal sealed class PreviewCanvas : Panel
     {
+        private Bitmap _frame;
+        private readonly Image _logo;
+        internal bool FillFrame { get; set; }
         internal string StateText { get; set; }
         internal string Subtitle { get; set; }
-
+        internal void SetFrame(Bitmap frame) { Bitmap old=_frame; _frame=frame; if(old!=null) old.Dispose(); Invalidate(); }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { SetFrame(null); _logo.Dispose(); }
+            base.Dispose(disposing);
+        }
         internal PreviewCanvas()
         {
-            StateText = "连接手机后，实时画面会显示在这里";
-            Subtitle = "无需单独打开第二个预览窗口";
+            _logo = UCamBrand.LoadImage();
+            StateText = "让手机成为你的摄像头";
+            Subtitle = "用 USB 连接安卓手机，即可开始高清拍摄";
+            AccessibleName = "摄像头实时预览";
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                      ControlStyles.OptimizedDoubleBuffer, true);
         }
-
-        protected override void OnPaint(PaintEventArgs eventArgs)
+        protected override void OnPaint(PaintEventArgs e)
         {
-            eventArgs.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
-            using (GraphicsPath path = UiDrawing.RoundRect(bounds, 12))
-            using (SolidBrush background = new SolidBrush(Color.FromArgb(18, 18, 20)))
+            float dpi = DeviceDpi / 96F;
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle bounds = new Rectangle(0,0,Math.Max(1,Width-1),Math.Max(1,Height-1));
+            using (GraphicsPath path = UiDrawing.RoundRect(bounds,(int)(14*dpi)))
             {
-                eventArgs.Graphics.FillPath(background, path);
-            }
-            if (string.IsNullOrEmpty(StateText))
-            {
-                return;
-            }
-            int centerX = Width / 2;
-            int centerY = Height / 2 - 22;
-            using (Pen pen = new Pen(Color.FromArgb(132, 132, 138), 2F))
-            {
-                pen.StartCap = LineCap.Round;
-                pen.EndCap = LineCap.Round;
-                Rectangle body = new Rectangle(centerX - 26, centerY - 15, 43, 30);
-                eventArgs.Graphics.DrawRoundedRectangle(pen, body, 7);
-                Point[] lens = new Point[]
+                using (Brush fill = new SolidBrush(_frame == null ? Color.White : Color.FromArgb(22,25,31)))
+                    g.FillPath(fill,path);
+                if (_frame != null)
                 {
-                    new Point(centerX + 17, centerY - 8),
-                    new Point(centerX + 31, centerY - 15),
-                    new Point(centerX + 31, centerY + 15),
-                    new Point(centerX + 17, centerY + 8)
-                };
-                eventArgs.Graphics.DrawPolygon(pen, lens);
+                    GraphicsState state = g.Save();
+                    g.SetClip(path);
+                    double scale = FillFrame ? Math.Max((double)Width/_frame.Width,(double)Height/_frame.Height)
+                        : Math.Min((double)Width/_frame.Width,(double)Height/_frame.Height);
+                    int w=(int)(_frame.Width*scale),h=(int)(_frame.Height*scale);
+                    g.InterpolationMode=InterpolationMode.HighQualityBilinear;
+                    g.DrawImage(_frame,new Rectangle((Width-w)/2,(Height-h)/2,w,h));
+                    g.Restore(state);
+                }
+                else if (!string.IsNullOrEmpty(StateText))
+                {
+                    bool roomy = Height >= 290*dpi;
+                    int centerY=Height/2;
+                    if (roomy)
+                    {
+                        int icon=(int)(72*dpi);
+                        g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(_logo,new Rectangle((Width-icon)/2,centerY-(int)(102*dpi),icon,icon));
+                    }
+                    int titleY = centerY - (int)(roomy ? 8*dpi : 36*dpi);
+                    Rectangle title = new Rectangle((int)(20*dpi),titleY,Width-(int)(40*dpi),(int)(34*dpi));
+                    Rectangle description = new Rectangle(title.X,title.Bottom+(int)(4*dpi),title.Width,(int)(42*dpi));
+                    using (Font font = UCamBrand.Font(13F,FontStyle.Bold))
+                        TextRenderer.DrawText(g,StateText,font,title,UCamBrand.Ink,
+                            TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+                    using (Font font = UCamBrand.Font(9F,FontStyle.Regular))
+                        TextRenderer.DrawText(g,Subtitle,font,description,UCamBrand.Muted,
+                            TextFormatFlags.HorizontalCenter|TextFormatFlags.Top|TextFormatFlags.WordBreak);
+                    if (roomy)
+                    {
+                        Rectangle steps = new Rectangle(title.X,Height-(int)(46*dpi),title.Width,(int)(24*dpi));
+                        using (Font font = UCamBrand.Font(8F,FontStyle.Regular))
+                            TextRenderer.DrawText(g,"连接数据线   ·   允许 USB 调试   ·   启动摄像头",font,steps,
+                                UCamBrand.Muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+                    }
+                }
+                using (Pen pen = new Pen(Color.FromArgb(232,235,240))) g.DrawPath(pen,path);
             }
-            Rectangle titleBounds = new Rectangle(20, centerY + 34, Math.Max(1, Width - 40), 26);
-            using (Font titleFont = CameraStudioFormFont(10F, FontStyle.Bold))
-            {
-                TextRenderer.DrawText(eventArgs.Graphics, StateText, titleFont, titleBounds,
-                    Color.FromArgb(242, 242, 247), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
-            Rectangle subtitleBounds = new Rectangle(20, centerY + 60, Math.Max(1, Width - 40), 23);
-            using (Font subtitleFont = CameraStudioFormFont(8.8F, FontStyle.Regular))
-            {
-                TextRenderer.DrawText(eventArgs.Graphics, Subtitle, subtitleFont, subtitleBounds,
-                    Color.FromArgb(152, 152, 157), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
-        }
-
-        private static Font CameraStudioFormFont(float size, FontStyle style)
-        {
-            return new Font("Segoe UI Variable Text", size, style, GraphicsUnit.Point);
         }
     }
 
@@ -1169,7 +1073,7 @@ namespace PhoneUsbCamera
         {
             PillBackColor = Color.FromArgb(241, 241, 243);
             PillForeColor = Color.FromArgb(110, 110, 115);
-            Font = new Font("Segoe UI Variable Text", 8.8F, FontStyle.Bold, GraphicsUnit.Point);
+            Font = UCamBrand.Font(8F, FontStyle.Regular);
             TextAlign = ContentAlignment.MiddleCenter;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                      ControlStyles.OptimizedDoubleBuffer, true);

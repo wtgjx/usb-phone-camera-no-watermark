@@ -1,0 +1,72 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '3.0.1' }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must be vMAJOR.MINOR.PATCH: $env:GITHUB_REF_NAME" }
+          "UCAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run UI and logic smoke tests
+        shell: pwsh
+        run: .\test.ps1
+
+      - name: Build UCam application
+        shell: pwsh
+        run: .\build.ps1 -OutputDirectory 'release-dist\installer-staging\app'
+
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: .\build-installer.ps1 -Version $env:UCAM_VERSION -AppSourceDirectory 'release-dist\installer-staging\app' -SkipAppBuild
+
+      - name: Verify installer artifact
+        shell: pwsh
+        run: .\test-installer.ps1 -Version $env:UCAM_VERSION
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UCam-${{ env.UCAM_VERSION }}-win64
+          path: |
+            release-dist/installer/UCam-Setup-win64.exe
+            release-dist/installer/UCam-Setup-win64.exe.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release assets
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            "release-dist/installer/UCam-Setup-win64.exe",
+            "release-dist/installer/UCam-Setup-win64.exe.sha256"
+          )
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $assets --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $assets `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "U镜 $env:UCAM_VERSION" --generate-notes
+          }

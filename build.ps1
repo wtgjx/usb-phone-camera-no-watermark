@@ -1,10 +1,12 @@
-﻿param([string]$OutputDirectory = 'dist')
+﻿param([string]$OutputDirectory = 'dist', [switch]$SkipNativeBuild)
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourcePath = Join-Path $projectRoot 'PhoneUsbCamera.cs'
 $uiSourcePath = Join-Path $projectRoot 'CameraStudioForm.cs'
 $previewSourcePath = Join-Path $projectRoot 'PreviewWindowBridge.cs'
+$nativeSourcePath = Join-Path $projectRoot 'NativeCameraBridge.cs'
+$usbSourcePath = Join-Path $projectRoot 'native\DirectUsbProbe.cs'
 $manifestPath = Join-Path $projectRoot 'app.manifest'
 $vendorRoot = Join-Path $projectRoot 'vendor'
 $vendorPath = Join-Path $projectRoot 'vendor\scrcpy-win64-v4.1'
@@ -13,13 +15,21 @@ if (-not $distPath.StartsWith($projectRoot + [IO.Path]::DirectorySeparatorChar, 
     throw 'OutputDirectory must be inside the project directory.'
 }
 $scrcpyDistPath = Join-Path $distPath 'scrcpy'
-$outputPath = Join-Path $distPath '无水印手机USB摄像头.exe'
+$outputPath = Join-Path $distPath 'U镜.exe'
 $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $scrcpyDownloadUri = 'https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-win64-v4.1.zip'
 $scrcpyExpectedHash = '5B12172B3264B2889F4583EE64752CE832E29BC8B1089DCA81093459697165DB'
 
 if (-not (Test-Path -LiteralPath $compilerPath)) {
     throw "未找到 Windows C# 编译器：$compilerPath"
+}
+
+& (Join-Path $projectRoot 'build-brand.ps1')
+if (-not $SkipNativeBuild) { & (Join-Path $projectRoot 'build-native.ps1') }
+foreach ($component in @('PhoneCameraNative.dll','PhoneUsbCameraFilter.dll')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $projectRoot ('native-dist\' + $component)))) {
+        throw "Missing $component. Run build-native.ps1 first or omit -SkipNativeBuild."
+    }
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $vendorPath 'scrcpy.exe'))) {
@@ -44,10 +54,14 @@ New-Item -ItemType Directory -Path $scrcpyDistPath -Force | Out-Null
 
 & $compilerPath `
     /nologo `
+    /main:PhoneUsbCamera.Program `
     /target:winexe `
     /platform:x64 `
     /optimize+ `
     /win32manifest:$manifestPath `
+    /win32icon:$(Join-Path $projectRoot 'assets\ucam.ico') `
+    /resource:$(Join-Path $projectRoot 'assets\ucam.ico'),UCam.Icon.ico `
+    /resource:$(Join-Path $projectRoot 'assets\ucam.png'),UCam.Logo.png `
     /out:$outputPath `
     /reference:System.dll `
     /reference:System.Core.dll `
@@ -55,17 +69,30 @@ New-Item -ItemType Directory -Path $scrcpyDistPath -Force | Out-Null
     /reference:System.Web.Extensions.dll `
     /reference:System.Windows.Forms.dll `
     $sourcePath `
+    (Join-Path $projectRoot 'BrandUI.cs') `
     $uiSourcePath `
-    $previewSourcePath
+    $previewSourcePath `
+    $nativeSourcePath `
+    $usbSourcePath
 
 if ($LASTEXITCODE -ne 0) {
     throw "编译失败，退出码：$LASTEXITCODE"
 }
 
 Copy-Item -Path (Join-Path $vendorPath '*') -Destination $scrcpyDistPath -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'native-dist\PhoneCameraNative.dll') -Destination $distPath -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'native-dist\PhoneUsbCameraFilter.dll') -Destination $distPath -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $distPath 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'NATIVE_CAMERA_PROTOTYPE.md') -Destination $distPath -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'UI_DESIGN.md') -Destination $distPath -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $distPath 'LICENSE') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $distPath 'THIRD_PARTY_NOTICES.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'install-camera.ps1') -Destination $distPath -Force
+$licensePath = Join-Path $distPath 'third_party\UnityCapture'
+New-Item -ItemType Directory -Path $licensePath -Force | Out-Null
+foreach ($licenseFile in @('UnityCaptureFilter.cpp','streams.cpp','streams.h','UPSTREAM.md')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot ('third_party\UnityCapture\' + $licenseFile)) -Destination $licensePath -Force
+}
 
 Write-Host "构建完成：$outputPath"
 Write-Host "scrcpy 运行库：$scrcpyDistPath"

@@ -14,12 +14,12 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("无水印手机 USB 摄像头")]
-[assembly: AssemblyDescription("通过 scrcpy Camera Mode 和 OBS Virtual Camera 将安卓手机摄像头接入 Windows")]
+[assembly: AssemblyTitle("U镜 · UCam")]
+[assembly: AssemblyDescription("通过 USB 视频流和独立 Phone USB Camera 组件接入 Windows，无需 OBS")]
 [assembly: AssemblyCompany("Local Tool")]
-[assembly: AssemblyProduct("无水印手机 USB 摄像头")]
-[assembly: AssemblyVersion("2.1.1.0")]
-[assembly: AssemblyFileVersion("2.1.1.0")]
+[assembly: AssemblyProduct("UCam")]
+[assembly: AssemblyVersion("3.0.1.0")]
+[assembly: AssemblyFileVersion("3.0.1.0")]
 
 namespace PhoneUsbCamera
 {
@@ -47,59 +47,11 @@ namespace PhoneUsbCamera
                 return;
             }
 
-            if (args.Length > 0 && string.Equals(args[0], "--prepare-obs", StringComparison.OrdinalIgnoreCase))
+            if (args.Length > 0)
             {
-                string output = args.Length > 1
-                    ? Path.GetFullPath(args[1])
-                    : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "prepare-obs.txt");
-                try
-                {
-                    OperationResult result = new BridgeService().PrepareObsConfiguration(QualityPreset.Stable1080());
-                    File.WriteAllText(output, result.Message, Encoding.UTF8);
-                    Environment.ExitCode = result.Success ? 0 : 1;
-                }
-                catch (Exception ex)
-                {
-                    File.WriteAllText(output, ex.ToString(), Encoding.UTF8);
-                    Environment.ExitCode = 1;
-                }
-
-                return;
-            }
-
-            if (args.Length > 0 && string.Equals(args[0], "--start-session", StringComparison.OrdinalIgnoreCase))
-            {
-                string output = args.Length > 1
-                    ? Path.GetFullPath(args[1])
-                    : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "start-session.txt");
-                string cameraId = args.Length > 2 ? args[2] : "0";
-                StringBuilder runLog = new StringBuilder();
-                try
-                {
-                    CameraInfo camera = new CameraInfo
-                    {
-                        Id = cameraId,
-                        Facing = "back",
-                        CustomName = "Camera ID " + cameraId,
-                        Sizes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    };
-                    SessionResult result = new BridgeService().StartSessionAsync(
-                        camera,
-                        QualityPreset.FourK(),
-                        delegate(string line) { runLog.AppendLine(line); }).Result;
-                    runLog.AppendLine("SUCCESS=" + result.Success);
-                    runLog.AppendLine("ACTUAL_QUALITY=" + result.ActualQuality);
-                    runLog.AppendLine("RESULT=" + result.Message);
-                    File.WriteAllText(output, runLog.ToString(), new UTF8Encoding(false));
-                    Environment.ExitCode = result.Success ? 0 : 1;
-                }
-                catch (Exception ex)
-                {
-                    runLog.AppendLine(ex.ToString());
-                    File.WriteAllText(output, runLog.ToString(), new UTF8Encoding(false));
-                    Environment.ExitCode = 1;
-                }
-
+                // v2 command-line entry points could launch OBS. They are deliberately
+                // unavailable in v3; use the UI or the opt-in native hardware test.
+                Environment.ExitCode = 2;
                 return;
             }
 
@@ -751,10 +703,10 @@ namespace PhoneUsbCamera
 
         internal Task<PhoneBridgeState> InspectAsync()
         {
-            return Task.Run(new Func<PhoneBridgeState>(Inspect));
+            return Task.Run(delegate { return Inspect(); });
         }
 
-        internal PhoneBridgeState Inspect()
+        internal PhoneBridgeState Inspect(bool includeLegacyObs = true)
         {
             PhoneBridgeState state = new PhoneBridgeState();
             state.GeneratedAt = DateTime.Now;
@@ -763,10 +715,10 @@ namespace PhoneUsbCamera
             state.ObsPath = _obsPath;
             state.OpenScreenPath = FindOpenScreenPath();
             state.ScrcpyAvailable = File.Exists(_scrcpyPath) && File.Exists(_adbPath);
-            state.ObsInstalled = File.Exists(_obsPath);
-            state.ObsVirtualCameraRegistered = IsObsVirtualCameraRegistered();
+            state.ObsInstalled = includeLegacyObs && File.Exists(_obsPath);
+            state.ObsVirtualCameraRegistered = includeLegacyObs && IsObsVirtualCameraRegistered();
             state.ScrcpyRunning = IsProcessRunning("scrcpy");
-            state.ObsRunning = IsProcessRunning("obs64");
+            state.ObsRunning = includeLegacyObs && IsProcessRunning("obs64");
             state.OpenScreenRunning = IsProcessRunning("OpenScreen") || IsProcessRunning("Openscreen");
             state.OpenScreenInstalled = !string.IsNullOrEmpty(state.OpenScreenPath) && File.Exists(state.OpenScreenPath);
 
@@ -798,11 +750,11 @@ namespace PhoneUsbCamera
             return state;
         }
 
-        internal Task<CameraScanResult> ScanCamerasAsync(Action<string> log)
+        internal Task<CameraScanResult> ScanCamerasAsync(Action<string> log, bool includeLegacyObs = true)
         {
             return Task.Run(delegate
             {
-                PhoneBridgeState state = Inspect();
+                PhoneBridgeState state = Inspect(includeLegacyObs);
                 if (!state.ScrcpyAvailable)
                 {
                     return CameraScanResult.Fail("程序包内缺少 scrcpy，请重新解压完整文件夹。");
@@ -1903,35 +1855,20 @@ namespace PhoneUsbCamera
     {
         internal static void Write(string path)
         {
-            BridgeService bridge = new BridgeService();
-            PhoneBridgeState state = bridge.Inspect();
-            bool obsTemplateValid;
-            try
-            {
-                new JavaScriptSerializer().DeserializeObject(BridgeService.BuildObsSceneJson(1920, 1080));
-                obsTemplateValid = true;
-            }
-            catch
-            {
-                obsTemplateValid = false;
-            }
+            PhoneBridgeState state = new NativeBridgeService().InspectAsync().GetAwaiter().GetResult();
 
             StringBuilder json = new StringBuilder();
             json.AppendLine("{");
             json.AppendLine("  \"generatedAt\": \"" + Escape(state.GeneratedAt.ToString("o")) + "\",");
             json.AppendLine("  \"scrcpyAvailable\": " + Bool(state.ScrcpyAvailable) + ",");
             json.AppendLine("  \"scrcpyPath\": \"" + Escape(state.ScrcpyPath) + "\",");
-            json.AppendLine("  \"obsInstalled\": " + Bool(state.ObsInstalled) + ",");
-            json.AppendLine("  \"obsVirtualCameraRegistered\": " + Bool(state.ObsVirtualCameraRegistered) + ",");
-            json.AppendLine("  \"obsTemplateValid\": " + Bool(obsTemplateValid) + ",");
+            json.AppendLine("  \"nativeCameraRegistered\": " + Bool(state.NativeCameraRegistered) + ",");
             json.AppendLine("  \"openScreenInstalled\": " + Bool(state.OpenScreenInstalled) + ",");
             json.AppendLine("  \"usbDevice\": " + DeviceJson(state.UsbDevice) + ",");
             json.AppendLine("  \"androidApi\": " + state.AndroidApi + ",");
             json.AppendLine("  \"androidRelease\": \"" + Escape(state.AndroidRelease) + "\",");
             json.AppendLine("  \"cameraModeCompatible\": " + Bool(state.CameraModeCompatible) + ",");
             json.AppendLine("  \"scrcpyRunning\": " + Bool(state.ScrcpyRunning) + ",");
-            json.AppendLine("  \"obsRunning\": " + Bool(state.ObsRunning) + ",");
-            json.AppendLine("  \"obsVirtualCameraActive\": " + Bool(state.ObsVirtualCameraActive) + ",");
             json.AppendLine("  \"summary\": \"" + Escape(state.Summary) + "\"");
             json.AppendLine("}");
 
@@ -2076,6 +2013,9 @@ namespace PhoneUsbCamera
 
     internal sealed class PhoneBridgeState
     {
+        internal bool NativeCameraRegistered { get; set; }
+        internal bool NativeOutputActive { get; set; }
+        internal bool NativeReceiverRunning { get; set; }
         internal DateTime GeneratedAt { get; set; }
         internal string ScrcpyPath { get; set; }
         internal string AdbPath { get; set; }
